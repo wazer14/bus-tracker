@@ -205,7 +205,7 @@ function driverLive(){
 const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
 const STYLES=[
  {k:'std',n:'تفصيلي (OSM)',l:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],z:[19],a:'© OpenStreetMap contributors'},
- {k:'sat',n:'قمر صناعي',z:[19,19,19,19,18,18],c:['tf-sat','tf-glow','tf-ink','tf-ink','tf-sat','tf-sat'],l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}','https://tile.openstreetmap.org/{z}/{x}/{y}.png','https://tile.openstreetmap.org/{z}/{x}/{y}.png','https://tile.openstreetmap.org/{z}/{x}/{y}.png',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
+ {k:'sat',n:'قمر صناعي',z:[19,19,19,19,18,18],c:['tf-sat','tf-halo','tf-halo','tf-txt','tf-sat','tf-sat'],l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}','https://tile.openstreetmap.org/{z}/{x}/{y}.png','https://tile.openstreetmap.org/{z}/{x}/{y}.png','https://tile.openstreetmap.org/{z}/{x}/{y}.png',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
 ];
 const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
 const LBL={moving:'متحرك',stopped:'متوقف',offline:'لا يوجد اتصال',off:'خارج الدوام'};

@@ -78,5 +78,7 @@ td.ov{font-weight:800;color:var(--bad)}tr.clk{cursor:pointer}tr.clk:hover{backgr
 html.en .spd{direction:ltr}
 .spd{white-space:nowrap}.spd b{margin-inline-end:3px}
 .drow .spd b{display:inline}
-.tf-glow{filter:invert(1) grayscale(1) brightness(1.5) contrast(1.4) blur(1.2px);mix-blend-mode:screen;opacity:.9}
-.tf-ink{filter:grayscale(.6) brightness(1.1) contrast(1.9);mix-blend-mode:multiply}
+
+
+.tf-halo{filter:grayscale(1) brightness(1.15) contrast(3) blur(1.4px) brightness(.55);mix-blend-mode:multiply}
+.tf-txt{filter:invert(1) grayscale(1) brightness(2.4) contrast(2.2);mix-blend-mode:screen}
