@@ -24,6 +24,6 @@ r=await call('GET','/api/report?month='+mo,null,A);t('report overtime',r.s===200
 r=await call('POST','/api/position',{lat:1,lon:1},A);t('admin cannot post position',r.s===403);
 for(let i=0;i<6;i++)r=await call('POST','/api/login',{u:'d1',p:'nope'});t('lockout 429',r.s===429);
 const o=await worker.fetch(new Request('https://api.test/api/fleet',{method:'OPTIONS',headers:{Origin:'https://x.github.io'}}),env);t('cors preflight',o.status===204&&o.headers.get('Access-Control-Allow-Origin')==='https://x.github.io');
-r=await call('POST','/api/position',{lat:24.7,lon:46.7,speed:0},D);t('position refused after checkout',r.b.ok===false);
-r=await call('GET','/api/fleet',null,A);t('no location after checkout',r.b.drivers[0].lat===null&&r.b.drivers[0].state==='off');
+r=await call('POST','/api/position',{lat:24.7,lon:46.7,speed:0},D);t('position accepted off shift (last known)',r.b.ok===true);
+r=await call('GET','/api/fleet',null,A);t('last known location kept off shift, flagged',r.b.drivers[0].lat===24.7&&r.b.drivers[0].onShift===false);
 process.exit(ok?0:1);

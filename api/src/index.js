@@ -39,13 +39,11 @@ async function login(env,req,H){
   const token=await sign(env,{u:row.u,role:row.role,exp:Date.now()+14*86400e3});
   return J({token,user:{u:row.u,name:row.name,role:row.role,bus:row.bus}},200,H);
 }
-const stateOf=(p,onShift,now)=>!onShift?'off':(!p||now-p.ts>ONLINE_MS)?'offline':p.moving?'moving':'stopped';
+const stateOf=(p,onShift,now)=>(!p||now-p.ts>ONLINE_MS)?(onShift||p?'offline':'off'):p.moving?'moving':'stopped';
 
 async function position(env,me,req,H){
   const b=await req.json().catch(()=>({}));const lat=num(b.lat,-90,90),lon=num(b.lon,-180,180);
   if(lat==null||lon==null)return J({error:'bad_position'},400,H);
-  const sh0=await env.DB.prepare('SELECT 1 x FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
-  if(!sh0){await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(me.u).run();return J({ok:false,error:'no_open_shift'},200,H)} // GPS is collected only during a shift
   const acc=num(b.acc,0,1e5),bat=num(b.bat,0,100),now=Date.now();
   let speed=num(b.speed,0,300);const prev=await env.DB.prepare('SELECT * FROM positions WHERE u=?').bind(me.u).first();
   const d=prev?dist(prev.lat,prev.lon,lat,lon):0,dt=prev?(now-prev.ts):0;
@@ -74,7 +72,7 @@ async function fleet(env){
   const now=Date.now();
   const rows=await env.DB.prepare(`SELECT u.u,u.name,u.phone,u.bus,p.lat,p.lon,p.speed,p.bat,p.ts,p.moving,s.id sid,s.bus sbus,s.start_ts,s.km,s.trips
    FROM users u LEFT JOIN positions p ON p.u=u.u LEFT JOIN shifts s ON s.u=u.u AND s.end_ts IS NULL WHERE u.role='driver' AND u.active=1 ORDER BY u.name`).all();
-  return {now,drivers:rows.results.map(r=>({u:r.u,name:r.name,phone:r.phone,bus:r.sbus||r.bus,state:stateOf(r.lat!=null?r:null,!!r.sid,now),lat:r.sid?r.lat:null,lon:r.sid?r.lon:null,speed:r.speed||0,bat:r.bat,lastSeen:r.ts,shiftStart:r.start_ts,km:r.km||0,trips:r.trips||0,elapsedMs:r.start_ts?now-r.start_ts:0}))};
+  return {now,drivers:rows.results.map(r=>({u:r.u,name:r.name,phone:r.phone,bus:r.sbus||r.bus,state:stateOf(r.lat!=null?r:null,!!r.sid,now),lat:r.lat,lon:r.lon,onShift:!!r.sid,speed:r.speed||0,bat:r.bat,lastSeen:r.ts,shiftStart:r.start_ts,km:r.km||0,trips:r.trips||0,elapsedMs:r.start_ts?now-r.start_ts:0}))};
 }
 async function report(env,month){
   if(!/^\d{4}-\d{2}$/.test(month))return null;
@@ -113,7 +111,7 @@ export default {
       if(path==='/api/shift/end'&&req.method==='POST'){
         if(me.role!=='driver')return J({error:'forbidden'},403,H);
         const sh=await env.DB.prepare('SELECT * FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();if(!sh)return J({error:'no_open_shift'},409,H);
-        const end=Date.now();await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE id=?').bind(end,sh.id).run();await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(me.u).run();
+        const end=Date.now();await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE id=?').bind(end,sh.id).run();
         return J({...(await meInfo(env,me)),ended:{start_ts:sh.start_ts,end_ts:end,overtimeMs:Math.max(0,end-sh.start_ts-H8)}},200,H);
       }
       let f;if(f=adminOnly())return f;

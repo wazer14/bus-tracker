@@ -149,7 +149,7 @@ function driverLive(){
   const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=startGeo)};
   const netUi=()=>{$('#net').innerHTML=st.net?'':'<div class="banner bad">لا يوجد اتصال بالخادم. نعيد المحاولة تلقائيًا.</div>'};
   async function send(){
-    if(!st.pos||!st.shift)return; // GPS is only sent during a shiftst.sent=Date.now();
+    if(!st.pos)return; st.sent=Date.now();
     try{await api('/api/position',{method:'POST',body:{lat:st.pos[0],lon:st.pos[1],speed:st.speed,acc:st.acc,bat:st.bat}});st.net=true}catch(e){if(e.message==='unauth')return;st.net=false}netUi();
   }
   function startGeo(){
@@ -167,16 +167,17 @@ function driverLive(){
   let wl=null;const keepAwake=async()=>{try{if(navigator.wakeLock&&st.shift)wl=await navigator.wakeLock.request('screen')}catch(_){}};
   let skew=0;
   const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
-  const apply=m=>{st.shift=m.shift;if(!m.shift&&watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;st.pos=null;st.last=null}if(m.shift&&watchId==null)startGeo();st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;if(m.shift)$('#s-km').textContent=(m.shift.km||0).toFixed(1);$('#last').innerHTML=lastHtml();renderShift()};
+  const apply=m=>{st.shift=m.shift;st.loaded=true;if(watchId==null)startGeo();st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;if(m.shift)$('#s-km').textContent=(m.shift.km||0).toFixed(1);$('#last').innerHTML=lastHtml();renderShift()};
   const C=2*Math.PI*104;
   function renderShift(){
     const sh=st.shift;
+    if(!sh&&!st.loaded){$('#shift').innerHTML='<p style="text-align:center;color:#667085;padding:30px 0">جارٍ التحميل...</p>';return}
     if(!sh){
       const opts=st.buses.length?st.buses.map(b=>b.id):[session.bus].filter(Boolean);
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/></svg><div class="ring-in"><div class="tm">00:00:00</div><small>الدوام 8 ساعات</small></div></div>
       <label class="f">الباص</label><select class="t" id="bus">${opts.map(b=>`<option ${b===session.bus?'selected':''}>${esc(b)}</option>`).join('')}</select>
       <button class="btn gold" id="in" ${opts.length?'':'disabled'}>استلام الباص</button>${opts.length?'':'<p class="err">ما في باصات مضافة. كلم المدير.</p>'}`;
-      $('#in')&&($('#in').onclick=async()=>{try{apply(await api('/api/shift/start',{method:'POST',body:{bus:$('#bus').value}}));toast('بدأ الدوام. الله يعطيك العافية');keepAwake();send()}catch(e){if(e.message!=='unauth')toast(errMsg(e))}});
+      $('#in')&&($('#in').onclick=async()=>{try{apply(await api('/api/shift/start',{method:'POST',body:{bus:$('#bus').value}}));toast('بدأ الدوام. الله يعطيك العافية');keepAwake();send()}catch(e){if(e.message==='shift_already_open'){try{apply(await api('/api/me'));toast('عندك دوام مفتوح. تم استرجاعه');keepAwake()}catch(_){}}else if(e.message!=='unauth')toast(errMsg(e))}});
     }else{
       const e=Date.now()+skew-sh.start_ts,over=Math.max(0,e-H8),frac=Math.min(1,e/H8);
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/><circle class="fg ${over?'ot':''}" cx="120" cy="120" r="104" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-frac)}"/></svg>
@@ -188,7 +189,10 @@ function driverLive(){
     }
   }
   const load=async()=>{try{apply(await api('/api/me'));st.net=true}catch(e){if(e.message==='unauth')return;st.net=false}netUi()};
-  permUi();startGeo();load();
+  permUi();
+  // ask once: only start the prompt flow if not already decided; a granted/denied state is read silently
+  if(navigator.permissions&&navigator.permissions.query){navigator.permissions.query({name:'geolocation'}).then(r=>{if(r.state==='denied'){st.perm='denied';permUi()}else startGeo();r.onchange=()=>{if(r.state==='granted'){startGeo()}else if(r.state==='denied'){st.perm='denied';permUi()}}}).catch(startGeo)}else startGeo();
+  load();
   timers.push(setInterval(()=>{if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
   timers.push(setInterval(()=>{if(st.pos&&Date.now()-st.sent>12000)send()},4000));
   timers.push(setInterval(async()=>{try{const m=await api('/api/me');st.shift=m.shift;if(m.shift)$('#s-km').textContent=(m.shift.km||0).toFixed(1);st.net=true}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
@@ -233,7 +237,7 @@ function stepFleet(dt){ // dt seconds
 let LFLEET=[];
 async function pollFleet(){try{const r=await api('/api/fleet');LFLEET=r.drivers;}catch(e){}}
 function adminState(){
-  if(LIVE)return LFLEET.filter(x=>x.lat!=null).map(x=>({d:{u:x.u,name:x.name,phone:x.phone},state:x.state,pos:[x.lat,x.lon],speed:x.speed,km:x.km,trips:x.trips,bat:x.bat,real:false,bus:x.bus||'-',seen:x.lastSeen}));
+  if(LIVE)return LFLEET.filter(x=>x.lat!=null).map(x=>({d:{u:x.u,name:x.name,phone:x.phone},state:x.state,pos:[x.lat,x.lon],speed:x.speed,km:x.km,trips:x.trips,bat:x.bat,real:false,bus:x.bus||'-',seen:x.lastSeen,onShift:x.onShift}));
   const live=u=>{const l=jget('bt.live.'+u,null);return l&&Date.now()-l.ts<5*60e3?l:null};
   return D.drivers.map(d=>{
     const f=FLEET[d.u],l=live(d.u);
@@ -276,7 +280,7 @@ function mapTab(){
     const c={moving:0,stopped:0,offline:0,off:0};S.forEach(x=>c[x.state]++);
     $('#sheet').innerHTML=`<div class="grab"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${Object.keys(c).map(k=>`<span class="pill" style="--c:${COL[k]}"><i></i>${LBL[k]} ${c[k]}</span>`).join('')}</div>`+
     (LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
-     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.km.toFixed(1)} كم · ${x.trips} رحلة · ${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':Math.round(x.speed||0)+' كم/س'}</small></span>
+     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.km.toFixed(1)} كم · ${x.trips} رحلة · ${x.onShift===false?'خارج الدوام · ':''}${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':Math.round(x.speed||0)+' كم/س'}</small></span>
      <span style="text-align:end"><span class="pill" style="--c:${COL[x.state]}"><i></i>${LBL[x.state]}</span><br>${batHtml(x.bat)}</span></button>`).join('');
     document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,15);sheet()});
   };
