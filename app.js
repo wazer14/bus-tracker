@@ -6,7 +6,7 @@ const jset=(k,v)=>LS.setItem(k,JSON.stringify(v));
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pad=n=>String(n).padStart(2,'0');
 const hms=ms=>{ms=Math.max(0,Math.floor(ms/1000));return pad(Math.floor(ms/3600))+':'+pad(Math.floor(ms%3600/60))+':'+pad(ms%60)};
-const hm=ms=>{const m=Math.round(ms/60000);return Math.floor(m/60)+':'+pad(m%60)};
+const hm=ms=>Math.round(ms/60000)+' د';
 const fdate=t=>new Date(t).toLocaleDateString('ar-SA-u-ca-gregory',{weekday:'short',day:'numeric',month:'short'});
 const ftime=t=>new Date(t).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
 const toast=t=>{const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>e.classList.remove('on'),2600)};
@@ -198,11 +198,7 @@ function driverLive(){
 /* ---------- admin ---------- */
 const STYLES=[
  {k:'osm',n:'خريطة الشوارع',u:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',a:'© OpenStreetMap',m:19},
- {k:'esri',n:'خريطة Esri',u:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',a:'Tiles © Esri',m:19},
  {k:'sat',n:'قمر صناعي',u:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',a:'Tiles © Esri',m:19},
- {k:'topo',n:'تضاريس',u:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',a:'Tiles © Esri',m:19},
- {k:'dark',n:'داكن',u:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',a:'© OpenStreetMap © CARTO',m:19},
- {k:'light',n:'فاتح',u:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',a:'© OpenStreetMap © CARTO',m:19}
 ];
 const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
 const LBL={moving:'متحرك',stopped:'متوقف',offline:'لا يوجد اتصال',off:'خارج الدوام'};
@@ -247,7 +243,7 @@ function adminState(){
   });
 }
 const batHtml=b=>b==null?'<span class="bat">—</span>':`<span class="bat" style="color:${b<=20?'#dc2626':b<=40?'#d97706':'#16a34a'}">🔋 ${b}%</span>`;
-let tab='map',styleK=localStorage.getItem('bt.style')||'osm',tile=null,markers={},focus=null,month=new Date().toISOString().slice(0,7);
+let tab='map',styleK=['osm','sat'].includes(localStorage.getItem('bt.style'))?localStorage.getItem('bt.style'):'osm',tile=null,markers={},focus=null,month=new Date().toISOString().slice(0,7);
 function adminView(){
   clearTimers();markers={};
   $('#app').innerHTML=`<div class="top"><div><b>لوحة الإدارة</b><small>${esc(D.admin.name)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
@@ -302,7 +298,7 @@ async function repTab(){
   <tr style="background:#faf7f0;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}</td><td>${rows.reduce((a,r)=>a+r.otDays,0)}</td></tr></tbody></table>
   <div class="note">بيانات الأشهر السابقة تجريبية. الدوام اللي يسجله سائق على هذا الجهاز يظهر هنا أيضًا. اضغط على اسم السائق لتفاصيل الأيام.</div></div>`;
   $('#mo').onchange=e=>{if(e.target.value){month=e.target.value;repTab()}};
-  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','hours','overtime_hours']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),((s.end-s.start)/3600e3).toFixed(2),(ot(s)/3600e3).toFixed(2)])));
+  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','minutes','overtime_minutes']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),Math.round((s.end-s.start)/60000),Math.round(ot(s)/60000)])));
     const csv='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='overtime-'+month+'.csv';a.click()};
   document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>{const r=rows.find(x=>x.d.u===t.dataset.u);
     $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
