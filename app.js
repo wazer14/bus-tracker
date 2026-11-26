@@ -140,7 +140,7 @@ function driverLive(){
   clearTimers();
   const st={pos:null,acc:null,speed:0,bat:null,perm:'ask',last:null,sent:0,shift:null,off:0,net:true,lastList:[],buses:[]};
   $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
-  <div class="pad"><div id="perm"></div><div id="net"></div>
+  <div class="pad"><div id="perm"></div><div id="trk"></div><div id="net"></div>
    <div class="card"><div id="shift"></div></div>
    <div class="stats"><div class="stat"><b id="s-km">0.0</b><span>كم اليوم</span></div><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
    <div class="card" id="last"></div>
@@ -164,10 +164,12 @@ function driverLive(){
     },e=>{st.perm=e.code===1?'denied':'ask';permUi()},{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }
   if(navigator.getBattery)navigator.getBattery().then(b=>{const u=()=>{st.bat=Math.round(b.level*100);$('#s-bat').textContent=st.bat+'%'};u();b.addEventListener('levelchange',u)});
-  let wl=null;const keepAwake=async()=>{try{if(navigator.wakeLock&&st.shift)wl=await navigator.wakeLock.request('screen')}catch(_){}};
+  let wl=null;
+  const trkUi=()=>{const el=$('#trk');if(!el)return;if(!st.shift){el.innerHTML='';return}const on=!!(wl&&!wl.released);el.innerHTML=on?'<div class="banner ok">التتبع شغال والشاشة ما بتنطفي أثناء الدوام. أبقِ التطبيق مفتوحًا.</div>':navigator.wakeLock?'<div class="banner bad">الشاشة ممكن تنطفي ويوقف التتبع. <button class="btn sm gold" id="wk">تفعيل إبقاء الشاشة</button></div>':'<div class="banner bad">المتصفح لا يدعم إبقاء الشاشة شغالة. اضبط الجوال على عدم إطفاء الشاشة، وأبقِ التطبيق مفتوحًا.</div>';$('#wk')&&($('#wk').onclick=keepAwake)};
+  const keepAwake=async()=>{try{if(navigator.wakeLock&&st.shift&&(!wl||wl.released)){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>trkUi())}}catch(_){}trkUi()};
   let skew=0;
   const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
-  const apply=m=>{st.shift=m.shift;st.loaded=true;if(watchId==null)startGeo();st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;if(m.shift)$('#s-km').textContent=(m.shift.km||0).toFixed(1);$('#last').innerHTML=lastHtml();renderShift()};
+  const apply=m=>{st.shift=m.shift;st.loaded=true;if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;if(m.shift)$('#s-km').textContent=(m.shift.km||0).toFixed(1);$('#last').innerHTML=lastHtml();renderShift()};
   const C=2*Math.PI*104;
   function renderShift(){
     const sh=st.shift;
@@ -196,7 +198,7 @@ function driverLive(){
   timers.push(setInterval(()=>{if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
   timers.push(setInterval(()=>{if(st.pos&&Date.now()-st.sent>12000)send()},4000));
   timers.push(setInterval(async()=>{try{const m=await api('/api/me');st.shift=m.shift;if(m.shift)$('#s-km').textContent=(m.shift.km||0).toFixed(1);st.net=true}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
-  document.onvisibilitychange=()=>{if(!document.hidden){keepAwake();send()}};
+  document.onvisibilitychange=()=>{if(!document.hidden){wl=null;keepAwake();send()}};
 }
 
 /* ---------- admin ---------- */
