@@ -80,5 +80,5 @@ html.en .spd{direction:ltr}
 .drow .spd b{display:inline}
 
 
-.tf-halo{filter:grayscale(1) contrast(9) brightness(1.5) blur(1.3px) brightness(.5);mix-blend-mode:multiply}
+.tf-halo{filter:grayscale(1) contrast(9) brightness(1.5) blur(1.2px);mix-blend-mode:multiply}
 .tf-txt{filter:invert(1) grayscale(1) contrast(9) brightness(1.2);mix-blend-mode:screen}
