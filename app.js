@@ -13,6 +13,8 @@ const toast=t=>{const e=$('#toast');e.textContent=t;e.classList.add('on');clearT
 const toRad=x=>x*Math.PI/180;
 const dist=(a,b)=>{const R=6371,dl=toRad(b[0]-a[0]),dn=toRad(b[1]-a[1]);const x=Math.sin(dl/2)**2+Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x))}; // km
 const drv=u=>D.drivers.find(d=>d.u===u);
+const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const APK_URL='https://github.com/wazer14/bus-tracker/releases/latest/download/bus-tracker.apk';
 const API=(window.BT_CONFIG&&window.BT_CONFIG.API_BASE||'').replace(/\/+$/,''),LIVE=!!API;
 async function api(path,opt={}){
   const r=await fetch(API+path,{method:opt.method||'GET',headers:{'content-type':'application/json',...(session?.token?{authorization:'Bearer '+session.token}:{})},body:opt.body?JSON.stringify(opt.body):undefined});
@@ -59,14 +61,14 @@ function loginView(msg=''){
   <button type="button" data-fill="admin|admin123">مدير: admin / admin123</button><br>
   لا تستخدم كلمات مرور حقيقية. التحقق هنا للعرض فقط وسيُنقل للخادم لاحقًا.</div></form></div>`;
   document.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>{const[a,c]=b.dataset.fill.split('|');$('#u').value=a;$('#p').value=c});
-  if(LIVE){$('.demo-box').innerHTML='النظام متصل بالخادم. استخدم اسم المستخدم وكلمة المرور اللي أعطاك إياها المدير.';}
+  if(LIVE){$('.demo-box').innerHTML='النظام متصل بالخادم. استخدم اسم المستخدم وكلمة المرور اللي أعطاك إياها المدير.';if(!NATIVE)$('.login').insertAdjacentHTML('beforeend',`<a class="dl" href="${APK_URL}">📲 تحميل التطبيق (أندرويد)</a>`)}
   $('#lf').onsubmit=async e=>{e.preventDefault();const u=$('#u').value.trim().toLowerCase(),p=$('#p').value;
     if(LIVE){try{const r=await api('/api/login',{method:'POST',body:{u,p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}catch(e){$('#er').textContent=errMsg(e)}return}
     if(u===D.admin.u&&p===D.admin.p)session={u,role:'admin'};
     else{const d=drv(u);if(d&&d.p===p)session={u,role:'driver'};else{$('#er').textContent='اسم المستخدم أو كلمة المرور غير صحيحة';return}}
     jset('bt.session',session);route();};
 }
-const logout=()=>{if(session?.role==='driver'&&(jget('bt.shift.'+session.u,null)||session.open)){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}LS.removeItem('bt.session');session=null;route()};
+const logout=()=>{if(session?.role==='driver'&&(jget('bt.shift.'+session.u,null)||session.open)){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}try{window.__natStop&&window.__natStop()}catch(_){}LS.removeItem('bt.session');session=null;route()};
 
 /* ---------- driver ---------- */
 function driverView(){
@@ -85,6 +87,7 @@ function driverView(){
   const pushLive=()=>{if(!st.pos)return;const sh=jget('bt.shift.'+d.u,null);jset(liveKey,{lat:st.pos[0],lon:st.pos[1],speed:st.speed,bat:st.bat,ts:Date.now(),onShift:!!sh,km:st.km,trips:st.trips,bus:sh?.bus||d.bus})};
   const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز أو المتصفح لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة اللي ظهرت. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=startGeo)};
   function startGeo(){
+    if(NATIVE)return startNative();
     if(!navigator.geolocation){st.perm='nosupport';permUi();return}
     if(watchId!=null)navigator.geolocation.clearWatch(watchId);
     watchId=navigator.geolocation.watchPosition(p=>{
@@ -105,7 +108,7 @@ function driverView(){
   }
   if(navigator.getBattery)navigator.getBattery().then(b=>{const u=()=>{st.bat=Math.round(b.level*100);$('#s-bat').textContent=st.bat+'%';pushLive()};u();b.addEventListener('levelchange',u)});
   permUi();startGeo();
-  let wl=null;const keepAwake=async()=>{try{if(navigator.wakeLock&&jget('bt.shift.'+d.u,null))wl=await navigator.wakeLock.request('screen')}catch(_){}};
+  let wl=null;const keepAwake=async()=>{if(NATIVE){trkUi();return}try{if(navigator.wakeLock&&jget('bt.shift.'+d.u,null))wl=await navigator.wakeLock.request('screen')}catch(_){}};
   const renderShift=()=>{
     const sh=jget('bt.shift.'+d.u,null);
     if(!sh){
@@ -136,6 +139,11 @@ function driverView(){
 
 
 /* ---------- driver (live backend) ---------- */
+async function driverNative(){
+  clearTimers();
+  if(!await consentGate()){LS.removeItem('bt.session');session=null;return loginView()}
+  driverLive();
+}
 function driverLive(){
   clearTimers();
   const st={pos:null,acc:null,speed:0,bat:null,perm:'ask',last:null,sent:0,shift:null,off:0,net:true,lastList:[],buses:[]};
@@ -144,11 +152,12 @@ function driverLive(){
    <div class="card"><div id="shift"></div></div>
    <div class="stats"><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
    <div class="card" id="last"></div>
-   <div class="note">يرسل التطبيق موقعك وبطارية جوالك للإدارة أثناء فتحه. أبقِ التطبيق مفتوحًا وشاشة الجوال شغالة أثناء الدوام.</div></div>`;
+   <div class="note">${NATIVE?'يرسل التطبيق موقعك وبطارية جوالك للإدارة طوال الدوام، حتى لو كانت الشاشة مقفلة. التتبع يتوقف عند تسليم الباص.':'يرسل التطبيق موقعك وبطارية جوالك للإدارة أثناء فتحه. أبقِ التطبيق مفتوحًا وشاشة الجوال شغالة أثناء الدوام.'}</div></div>`;
   $('#lo').onclick=()=>{if(st.shift){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}logout()};
-  const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=startGeo)};
+  const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=()=>{if(NATIVE&&BG&&BG.openSettings&&st.perm==='denied')BG.openSettings();else startGeo()})};
   const netUi=()=>{$('#net').innerHTML=st.net?'':'<div class="banner bad">لا يوجد اتصال بالخادم. نعيد المحاولة تلقائيًا.</div>'};
   async function send(){
+    if(NATIVE)return flush(true);
     if(!st.pos)return; st.sent=Date.now();
     try{await api('/api/position',{method:'POST',body:{lat:st.pos[0],lon:st.pos[1],speed:st.speed,acc:st.acc,bat:st.bat}});st.net=true}catch(e){if(e.message==='unauth')return;st.net=false}netUi();
   }
@@ -165,11 +174,45 @@ function driverLive(){
   }
   if(navigator.getBattery)navigator.getBattery().then(b=>{const u=()=>{st.bat=Math.round(b.level*100);$('#s-bat').textContent=st.bat+'%'};u();b.addEventListener('levelchange',u)});
   let wl=null;
-  const trkUi=()=>{const el=$('#trk');if(!el)return;if(!st.shift){el.innerHTML='';return}const on=!!(wl&&!wl.released);el.innerHTML=on?'<div class="banner ok">التتبع شغال والشاشة ما بتنطفي أثناء الدوام. أبقِ التطبيق مفتوحًا.</div>':navigator.wakeLock?'<div class="banner bad">الشاشة ممكن تنطفي ويوقف التتبع. <button class="btn sm gold" id="wk">تفعيل إبقاء الشاشة</button></div>':'<div class="banner bad">المتصفح لا يدعم إبقاء الشاشة شغالة. اضبط الجوال على عدم إطفاء الشاشة، وأبقِ التطبيق مفتوحًا.</div>';$('#wk')&&($('#wk').onclick=keepAwake)};
+  const trkUi=()=>{const el=$('#trk');if(!el)return;if(NATIVE){const p=[];if(st.shift&&nat.id!=null&&nat.mode==='bg')p.push('<div class="banner ok">التتبع شغال في الخلفية حتى مع قفل الشاشة. لا تغلق التطبيق بالسحب.</div>');if(!nat.batOk)p.push('<div class="banner bad">لاستمرار التتبع اسمح للتطبيق بالعمل في الخلفية بدون قيود البطارية. <button class="btn sm gold" id="bt-bat">السماح</button></div>');el.innerHTML=p.join('');$('#bt-bat')&&($('#bt-bat').onclick=async()=>{try{await BAT.request()}catch(_){}setTimeout(checkBat,2500)});return}if(!st.shift){el.innerHTML='';return}const on=!!(wl&&!wl.released);el.innerHTML=on?'<div class="banner ok">التتبع شغال والشاشة ما بتنطفي أثناء الدوام. أبقِ التطبيق مفتوحًا.</div>':navigator.wakeLock?'<div class="banner bad">الشاشة ممكن تنطفي ويوقف التتبع. <button class="btn sm gold" id="wk">تفعيل إبقاء الشاشة</button></div>':'<div class="banner bad">المتصفح لا يدعم إبقاء الشاشة شغالة. اضبط الجوال على عدم إطفاء الشاشة، وأبقِ التطبيق مفتوحًا.</div>';$('#wk')&&($('#wk').onclick=keepAwake)};
   const keepAwake=async()=>{try{if(navigator.wakeLock&&st.shift&&(!wl||wl.released)){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>trkUi())}}catch(_){}trkUi()};
   let skew=0;
+  const nat={id:null,mode:null,starting:false,q:jget('bt.q.'+session.u,[]),lastQ:0,lastFlush:0,busy:false,batOk:true,cfg:{pingSec:15,flushSec:30}};
+  const BG=NATIVE?window.Capacitor.Plugins.BackgroundGeolocation:null,BAT=NATIVE?window.Capacitor.Plugins.BatteryOpt:null;
+  const saveQ=()=>{if(nat.q.length>3000)nat.q=nat.q.slice(-3000);jset('bt.q.'+session.u,nat.q)};
+  async function flush(force){
+    if(!nat.q.length||nat.busy)return;
+    if(!force&&Date.now()-nat.lastFlush<nat.cfg.flushSec*1000)return;
+    nat.busy=true;nat.lastFlush=Date.now();const batch=nat.q.slice(0,300);let ok=false;
+    try{await api('/api/positions',{method:'POST',body:{points:batch}});nat.q=nat.q.slice(batch.length);saveQ();st.net=true;st.sent=Date.now();ok=true}catch(e){if(e.message!=='unauth')st.net=false}
+    nat.busy=false;netUi();if(ok&&nat.q.length)flush(true)}
+  const checkBat=async()=>{if(!BAT)return;try{nat.batOk=!!(await BAT.status()).ignoring}catch(_){}trkUi()};
+  async function startNative(){
+    if(!BG){st.perm='nosupport';permUi();return}
+    const mode=st.shift?'bg':'fg';
+    if(nat.starting||(nat.id!=null&&nat.mode===mode))return;
+    nat.starting=true;
+    try{
+      if(nat.id!=null){await BG.removeWatcher({id:nat.id});nat.id=null}
+      try{Object.assign(nat.cfg,await api('/api/config'))}catch(_){}
+      const o={requestPermissions:true,stale:false,distanceFilter:0};
+      if(mode==='bg'){o.backgroundMessage='تتبع الموقع شغال أثناء الدوام';o.backgroundTitle='تتبع الباصات'}
+      nat.id=await BG.addWatcher(o,(loc,err)=>{
+        if(err){if(err.code==='NOT_AUTHORIZED'){st.perm='denied';permUi()}return}
+        const now=Date.now(),ts=loc.time||now,np=[loc.latitude,loc.longitude];
+        let sp=loc.speed!=null&&loc.speed>=0?loc.speed*3.6:null;
+        if(sp==null&&st.last){const dt=(now-st.last.t)/3600e3;sp=dt>0?dist(st.last.p,np)/dt:0}
+        st.speed=sp||0;st.pos=np;st.acc=loc.accuracy;st.last={p:np,t:now};st.perm='ok';
+        $('#s-sp')&&($('#s-sp').textContent=Math.round(st.speed));permUi();
+        if(ts-nat.lastQ>=nat.cfg.pingSec*1000-500){nat.lastQ=ts;nat.q.push({lat:np[0],lon:np[1],speed:st.speed,acc:loc.accuracy,bat:st.bat,ts});saveQ()}
+        flush(false)});
+      nat.mode=mode;
+    }catch(e){st.perm='denied';permUi()}
+    nat.starting=false;trkUi();checkBat();
+  }
+  window.__natStop=()=>{try{if(nat.id!=null)BG.removeWatcher({id:nat.id});nat.id=null}catch(_){}};
   const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
-  const apply=m=>{st.shift=m.shift;st.loaded=true;if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;$('#last').innerHTML=lastHtml();renderShift()};
+  const apply=m=>{st.shift=m.shift;st.loaded=true;if(NATIVE)startNative();else if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;$('#last').innerHTML=lastHtml();renderShift()};
   const C=2*Math.PI*104;
   function renderShift(){
     const sh=st.shift;
@@ -193,12 +236,12 @@ function driverLive(){
   const load=async()=>{try{apply(await api('/api/me'));st.net=true}catch(e){if(e.message==='unauth')return;st.net=false}netUi()};
   permUi();
   // ask once: only start the prompt flow if not already decided; a granted/denied state is read silently
-  if(navigator.permissions&&navigator.permissions.query){navigator.permissions.query({name:'geolocation'}).then(r=>{if(r.state==='denied'){st.perm='denied';permUi()}else startGeo();r.onchange=()=>{if(r.state==='granted'){startGeo()}else if(r.state==='denied'){st.perm='denied';permUi()}}}).catch(startGeo)}else startGeo();
+  if(NATIVE){startNative()}else if(navigator.permissions&&navigator.permissions.query){navigator.permissions.query({name:'geolocation'}).then(r=>{if(r.state==='denied'){st.perm='denied';permUi()}else startGeo();r.onchange=()=>{if(r.state==='granted'){startGeo()}else if(r.state==='denied'){st.perm='denied';permUi()}}}).catch(startGeo)}else startGeo();
   load();
   timers.push(setInterval(()=>{if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
-  timers.push(setInterval(()=>{if(st.pos&&Date.now()-st.sent>12000)send()},4000));
+  timers.push(setInterval(()=>{if(NATIVE)flush(false);else if(st.pos&&Date.now()-st.sent>12000)send()},4000));
   timers.push(setInterval(async()=>{try{const m=await api('/api/me');st.shift=m.shift;st.net=true}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
-  document.onvisibilitychange=()=>{if(!document.hidden){wl=null;keepAwake();send()}};
+  document.onvisibilitychange=()=>{if(!document.hidden){wl=null;keepAwake();if(NATIVE){checkBat();flush(true)}else send()}};
 }
 
 /* ---------- admin ---------- */
@@ -343,8 +386,10 @@ async function accTab(){
 
 async function drvTab(){
   let list=[];try{list=await api('/api/drivers')}catch(e){if(e.message==='unauth')return}
+  let cons={},cfg={pingSec:15};try{(await api('/api/consents')).consents.forEach(c=>cons[c.u]=c)}catch(_){}try{cfg=await api('/api/config')}catch(_){}
   let buses=[];
-  $('#body').innerHTML=`<div class="rep"><div class="card"><b>إضافة سائق</b>
+  $('#body').innerHTML=`<div class="rep"><div class="card"><b>فترة إرسال الموقع من التطبيق</b><label class="f">بالثواني (من 5 إلى 300)</label><input class="t" id="ps2" inputmode="numeric" value="${cfg.pingSec||15}"><div class="err" id="pse"></div><button class="btn gold" id="psb">حفظ</button></div>
+  <div class="card" style="margin-top:14px"><b>إضافة سائق</b>
    <label class="f">الاسم</label><input class="t" id="dn" style="direction:rtl">
    <label class="f">اسم المستخدم (إنجليزي)</label><input class="t" id="du" autocapitalize="off">
    <label class="f">الجوال</label><input class="t" id="dp" inputmode="tel">
@@ -352,16 +397,50 @@ async function drvTab(){
    <label class="f">كلمة المرور (8 أحرف على الأقل)</label><input class="t" id="dw" type="text" autocomplete="off">
    <div class="err" id="de"></div><button class="btn gold" id="da">إضافة</button></div>
    <h3 style="margin:18px 0 8px">السائقون (${list.length})</h3>
-   <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th><th></th></tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#667085">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}</td>
+   <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th><th></th></tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#667085">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}<br><small style="color:${cons[d.u]?'#16a34a':'#d97706'}">${cons[d.u]?'وافق على التتبع '+fdate(cons[d.u].ts):'لم يوافق على التتبع بعد'}</small></td>
     <td><button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td></tr>`).join('')}</tbody></table></div>`;
   $('#da').onclick=async()=>{try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u:$('#du').value,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value}});
       const b=$('#db').value.trim();if(b)await api('/api/buses',{method:'POST',body:{id:b}}).catch(()=>{});toast('تمت إضافة السائق');drvTab()}catch(e){$('#de').textContent=e.code==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 8 أحرف أو أكثر':errMsg(e)}};
+  $('#psb').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:{pingSec:parseInt($('#ps2').value)}});$('#pse').textContent='';toast('تم الحفظ')}catch(e){$('#pse').textContent='القيمة من 5 إلى 300 ثانية'}};
   document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.pw+' (8 أحرف على الأقل)');if(!p)return;try{await api('/api/drivers/'+b.dataset.pw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const[u,n]=b.dataset.del.split('|');if(!confirm('حذف السائق '+n+' نهائيا؟ سيتم حذف بياناته وسجل دوامه ولا يمكن التراجع. (للإيقاف المؤقت استخدم إيقاف)'))return;if(!confirm('تأكيد أخير: حذف '+n+' نهائيا؟'))return;try{await api('/api/drivers/'+u,{method:'DELETE'});toast('تم حذف السائق');drvTab()}catch(e){toast(e.code==='shift_open'||e.message==='shift_open'?'السائق عنده دوام مفتوح، لازم يسلم الباص أولا':errMsg(e))}});
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const[u,a]=b.dataset.act.split('|');await api('/api/drivers/'+u,{method:'PATCH',body:{active:a==='1'}});drvTab()});
 }
 
-function route(){if(!session)return loginView();session.role==='admin'?adminView():(LIVE?driverLive():driverView())}
+
+const CONSENT_V='1';
+function consentModal(){return new Promise(res=>{const el=document.createElement('div');el.className='consent';
+  el.innerHTML=`<div class="cbox"><h2>إشعار تتبع الموقع</h2>
+  <p>هذا الهاتف والتطبيق ملك الشركة. قبل الاستخدام يرجى قراءة ما يلي:</p>
+  <ul><li><b>ما الذي يُجمع:</b> موقعك الجغرافي (الإحداثيات والسرعة ودقة الموقع)، ونسبة بطارية الجهاز، ووقت كل تحديث.</li>
+  <li><b>متى:</b> من لحظة استلام الباص حتى تسليمه، بشكل متواصل، حتى لو كانت الشاشة مقفلة أو التطبيق في الخلفية. يظهر إشعار دائم "تتبع الموقع شغال" أثناء ذلك. خارج الدوام يُرسل الموقع فقط أثناء فتح التطبيق.</li>
+  <li><b>من يرى بياناتك:</b> مدير النظام ومدير التشغيل فقط.</li>
+  <li><b>مدة الحفظ:</b> يُحفظ آخر موقع فقط ويُستبدل مع كل تحديث، ولا يُحفظ سجل مسارات. يُحفظ سجل الدوام (أوقات الاستلام والتسليم والوقت الإضافي) حسب سياسة الشركة.</li>
+  <li><b>الغرض:</b> متابعة أسطول الباصات والسلامة وحساب الوقت الإضافي، ولا يُستخدم لغير ذلك.</li></ul>
+  <p>بالضغط على "أوافق" تؤكد أنك قرأت الإشعار ووافقت على التتبع المذكور. تسجّل موافقتك مع التاريخ والوقت. إذا لم توافق لن تتمكن من استخدام التطبيق.</p>
+  <button class="btn gold" id="c-ok">أوافق</button> <button class="btn ghost" id="c-no">لا أوافق</button></div>`;
+  document.body.appendChild(el);
+  el.querySelector('#c-ok').onclick=async()=>{el.querySelector('#c-ok').disabled=true;try{await api('/api/consent',{method:'POST',body:{version:CONSENT_V,device:(navigator.userAgent||'').slice(0,120)}});LS.setItem('bt.consent.'+session.u,CONSENT_V);el.remove();res(true)}catch(e){el.querySelector('#c-ok').disabled=false;toast(errMsg(e))}};
+  el.querySelector('#c-no').onclick=()=>{el.remove();res(false)}})}
+async function consentGate(){
+  if(LS.getItem('bt.consent.'+session.u)===CONSENT_V)return true;
+  try{const c=await api('/api/config');if(c.consented){LS.setItem('bt.consent.'+session.u,CONSENT_V);return true}}catch(e){if(e.message==='unauth')return false;toast(errMsg(e));return false}
+  return await consentModal()}
+async function driverInfo(){
+  clearTimers();
+  $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div><div class="pad" id="inf"><p style="text-align:center;color:#667085;padding:30px 0">جارٍ التحميل...</p></div>`;
+  $('#lo').onclick=()=>{LS.removeItem('bt.session');session=null;route()};
+  const dl=`<div class="card" style="text-align:center"><b>تطبيق السائق</b><p style="color:#667085;font-size:14px;margin:6px 0 12px">استلام وتسليم الباص وتتبع الموقع يتم من تطبيق أندرويد فقط. حمّله وثبّته، ثم سجّل دخولك بنفس الحساب.</p><a class="dl" href="${APK_URL}">📲 تحميل التطبيق (أندرويد)</a><p style="color:#667085;font-size:12.5px;margin:10px 0 0">بعد التحميل افتح الملف واسمح بالتثبيت من هذا المصدر إذا طُلب منك.</p></div>`;
+  try{
+    const m=await api('/api/me'),u=m.user||{},sh=m.shift;
+    const row=x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`;
+    $('#inf').innerHTML=`<div class="card"><b>بياناتي</b><p style="margin:8px 0 0;font-size:14px;line-height:1.9">الاسم: ${esc(u.name||'')}<br>اسم المستخدم: ${esc(u.u||'')}<br>الجوال: ${esc(u.phone||'-')}<br>الباص الافتراضي: ${esc(u.bus||'-')}</p></div>
+    <div class="card"><b>الدوام الحالي</b><p style="margin:8px 0 0;font-size:14px">${sh?`دوام مفتوح على الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start_ts)}<br><small style="color:#667085">للتسليم افتح التطبيق.</small>`:'لا يوجد دوام مفتوح.'}</p></div>
+    <div class="card"><b>آخر الدوامات والوقت الإضافي</b>${(m.last||[]).length?(m.last||[]).map(row).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>'}</div>`+dl;
+  }catch(e){if(e.message==='unauth')return;$('#inf').innerHTML=`<div class="banner bad">${esc(errMsg(e))}</div>`+dl}
+}
+
+function route(){if(!session)return loginView();session.role==='admin'?adminView():(LIVE?(NATIVE?driverNative():driverInfo()):driverView())}
 initFleet();route();
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

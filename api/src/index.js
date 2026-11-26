@@ -61,6 +61,39 @@ async function position(env,me,req,H){
    .bind(me.u,lat,lon,speed,acc,bat,now,moving,still,lat,lon,speed,acc,bat,now,moving,still).run();
   return J({ok:true,ts:now},200,H);
 }
+
+let tablesOk=false;
+async function ensureTables(env){if(tablesOk)return;
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS consents(id INTEGER PRIMARY KEY AUTOINCREMENT,u TEXT NOT NULL,version TEXT NOT NULL,ts INTEGER NOT NULL,device TEXT)').run();
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)').run();tablesOk=true}
+const CONSENT_V='1';
+async function getSettings(env){await ensureTables(env);const r=await env.DB.prepare('SELECT k,v FROM settings').all();const m={};r.results.forEach(x=>m[x.k]=x.v);
+  return {pingSec:Math.min(300,Math.max(5,parseInt(m.pingSec)||15)),flushSec:Math.min(120,Math.max(10,parseInt(m.flushSec)||30))}}
+async function positionsBatch(env,me,req,H){
+  const b=await req.json().catch(()=>({}));const now=Date.now();
+  const n2=(v,a,c)=>v==null?null:num(v,a,c);
+  const pts=(Array.isArray(b.points)?b.points.slice(-300):[]).map(p=>({lat:n2(p?.lat,-90,90),lon:n2(p?.lon,-180,180),speed:n2(p?.speed,0,300),acc:n2(p?.acc,0,1e5),bat:n2(p?.bat,0,100),ts:Math.min(now,Math.max(now-864e5,Number(p?.ts)||now))}))
+    .filter(p=>p.lat!=null&&p.lon!=null).sort((x,y)=>x.ts-y.ts);
+  if(!pts.length)return J({error:'bad_position'},400,H);
+  const prev=await env.DB.prepare('SELECT * FROM positions WHERE u=?').bind(me.u).first();
+  const sh=await env.DB.prepare('SELECT * FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
+  let pl=prev?{lat:prev.lat,lon:prev.lon,ts:prev.ts,moving:prev.moving,still:prev.still_ms}:null,still=prev?prev.still_ms:0,km=0,trips=0,used=0,bat=null,speed=0,acc=null;
+  for(const p of pts){
+    if(pl&&p.ts<=pl.ts)continue;
+    const dt=pl?p.ts-pl.ts:0,d=pl?dist(pl.lat,pl.lon,p.lat,p.lon):0;
+    let sp=p.speed;if(sp==null)sp=dt>0&&dt<60e3?d/(dt/3600e3):0;
+    const moving=sp>MOVE_KMH?1:0;
+    if(moving)still=0;else if(dt>0&&dt<120e3)still+=dt;
+    if(sh&&pl&&(p.acc==null||p.acc<80)&&d>0.005&&d<2&&dt<5*60e3)km+=d;
+    if(sh&&moving&&pl&&!pl.moving&&pl.still>60e3)trips++;
+    pl={lat:p.lat,lon:p.lon,ts:p.ts,moving,still};speed=sp;acc=p.acc;if(p.bat!=null)bat=p.bat;used++;
+  }
+  if(!used)return J({ok:true,used:0,ts:prev?prev.ts:now},200,H);
+  if(sh&&(km||trips))await env.DB.prepare('UPDATE shifts SET km=km+?,trips=trips+? WHERE id=?').bind(km,trips,sh.id).run();
+  await env.DB.prepare('INSERT INTO positions(u,lat,lon,speed,acc,bat,ts,moving,still_ms) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(u) DO UPDATE SET lat=?,lon=?,speed=?,acc=?,bat=COALESCE(?,bat),ts=?,moving=?,still_ms=?')
+   .bind(me.u,pl.lat,pl.lon,speed,acc,bat,pl.ts,pl.moving,still,pl.lat,pl.lon,speed,acc,bat,pl.ts,pl.moving,still).run();
+  return J({ok:true,used,ts:pl.ts},200,H);
+}
 async function meInfo(env,me){
   const u=await env.DB.prepare('SELECT u,name,phone,role,bus,sub FROM users WHERE u=?').bind(me.u).first();
   const shift=await env.DB.prepare('SELECT id,bus,start_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
@@ -99,6 +132,14 @@ export default {
       me.role=live.role;me.sub=live.sub;
       const adminOnly=()=>me.role==='admin'?null:J({error:'forbidden'},403,H);
       if(path==='/api/me'&&req.method==='GET')return J(await meInfo(env,me),200,H);
+      if(path==='/api/positions'&&req.method==='POST')return me.role==='driver'?await positionsBatch(env,me,req,H):J({error:'forbidden'},403,H);
+      if(path==='/api/config'&&req.method==='GET'){const st=await getSettings(env);const c=await env.DB.prepare('SELECT ts FROM consents WHERE u=? AND version=? ORDER BY ts DESC LIMIT 1').bind(me.u,CONSENT_V).first();return J({...st,consentVersion:CONSENT_V,consented:!!c,consentTs:c?c.ts:null},200,H)}
+      if(path==='/api/consent'&&req.method==='POST'){await ensureTables(env);const b=await req.json().catch(()=>({}));if(b.version!==CONSENT_V)return J({error:'bad_request'},400,H);
+        await env.DB.prepare('INSERT INTO consents(u,version,ts,device) VALUES(?,?,?,?)').bind(me.u,CONSENT_V,Date.now(),String(b.device||'').slice(0,120)).run();return J({ok:true},200,H)}
+      if(path==='/api/consents'&&req.method==='GET'){const e=adminOnly();if(e)return e;await ensureTables(env);const r=await env.DB.prepare('SELECT u,version,MAX(ts) ts,device FROM consents GROUP BY u').all();return J({consents:r.results},200,H)}
+      if(path==='/api/settings'&&req.method==='PUT'){const e=adminOnly();if(e)return e;await ensureTables(env);const b=await req.json().catch(()=>({}));
+        const ps=parseInt(b.pingSec);if(!(ps>=5&&ps<=300))return J({error:'bad_request'},400,H);
+        await env.DB.prepare('INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=?').bind('pingSec',String(ps),String(ps)).run();return J({ok:true,...await getSettings(env)},200,H)}
       if(path==='/api/position'&&req.method==='POST')return me.role==='driver'?await position(env,me,req,H):J({error:'forbidden'},403,H);
       if(path==='/api/shift/start'&&req.method==='POST'){
         if(me.role!=='driver')return J({error:'forbidden'},403,H);

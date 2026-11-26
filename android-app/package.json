@@ -1,0 +1,13 @@
+{
+  "name": "bus-tracker-android",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@capacitor/android": "6.2.4",
+    "@capacitor/core": "6.2.4",
+    "@capacitor-community/background-geolocation": "1.3.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "6.2.4"
+  }
+}

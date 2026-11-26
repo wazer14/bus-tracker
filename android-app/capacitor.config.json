@@ -1,0 +1,11 @@
+{
+  "appId": "com.wazer14.bustracker",
+  "appName": "تتبع الباصات",
+  "webDir": "www",
+  "server": {
+    "url": "https://wazer14.github.io/bus-tracker/",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": { "allowMixedContent": false }
+}
