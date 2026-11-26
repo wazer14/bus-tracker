@@ -1,4 +1,4 @@
-const V='bt-v6';
+const V='bt-v7';
 const CORE=['./','index.html','style.css','app.js','data.js','config.js','manifest.webmanifest','lib/leaflet.js','lib/leaflet.css','lib/images/marker-icon.png','lib/images/layers.png','icons/icon-192.png','icons/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V&&x.startsWith('bt-')).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});

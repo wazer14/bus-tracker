@@ -204,7 +204,7 @@ function driverLive(){
 /* ---------- admin ---------- */
 const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
 const STYLES=[
- {k:'osm',n:'خريطة الشوارع',l:['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'],a:'© OpenStreetMap contributors © CARTO'},
+ {k:'osm',n:'خريطة الشوارع',l:[ESRI+'World_Street_Map/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri'},
  {k:'sat',n:'قمر صناعي',l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
 ];
 const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
@@ -265,7 +265,7 @@ function mapTab(){
   <div class="sheet" id="sheet"></div></div>`;
   map=L.map('map',{zoomControl:false,attributionControl:true}).setView(D.depot,12);
   L.control.zoom({position:'bottomleft'}).addTo(map);
-  const setTile=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(tile)map.removeLayer(tile);tile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':s.a,maxZoom:19,maxNativeZoom:18}))).addTo(map);document.querySelectorAll('#styles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
+  const setTile=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(tile)map.removeLayer(tile);tile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':s.a,maxZoom:19,maxNativeZoom:18,className:'tf-'+s.k}))).addTo(map);document.querySelectorAll('#styles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
   setTile(styleK);
   document.querySelectorAll('#styles button').forEach(b=>b.onclick=()=>setTile(b.dataset.s));
   const draw=(fit)=>{
