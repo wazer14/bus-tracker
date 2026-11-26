@@ -7,8 +7,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const pad=n=>String(n).padStart(2,'0');
 const hms=ms=>{ms=Math.max(0,Math.floor(ms/1000));return pad(Math.floor(ms/3600))+':'+pad(Math.floor(ms%3600/60))+':'+pad(ms%60)};
 const hm=ms=>Math.round(ms/60000)+' د';
-const fdate=t=>new Date(t).toLocaleDateString('ar-SA-u-ca-gregory',{weekday:'short',day:'numeric',month:'short'});
-const ftime=t=>new Date(t).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
+const fdate=t=>new Date(t).toLocaleDateString(LANGX==='en'?'en-GB':'ar-SA-u-ca-gregory',{weekday:'short',day:'numeric',month:'short'});
+const ftime=t=>new Date(t).toLocaleTimeString(LANGX==='en'?'en-GB':'ar-SA',{hour:'2-digit',minute:'2-digit'});
 const toast=t=>{const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>e.classList.remove('on'),2600)};
 const toRad=x=>x*Math.PI/180;
 const dist=(a,b)=>{const R=6371,dl=toRad(b[0]-a[0]),dn=toRad(b[1]-a[1]);const x=Math.sin(dl/2)**2+Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x))}; // km
@@ -205,7 +205,8 @@ function driverLive(){
 const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
 const STYLES=[
  {k:'osm',n:'خريطة الشوارع',l:[ESRI+'World_Street_Map/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri'},
- {k:'sat',n:'قمر صناعي',l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
+ {k:'std',n:'تفصيلي (OSM)',l:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],z:[19],a:'© OpenStreetMap contributors'},
+ {k:'sat',n:'قمر صناعي',z:[19,18,18],l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
 ];
 const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
 const LBL={moving:'متحرك',stopped:'متوقف',offline:'لا يوجد اتصال',off:'خارج الدوام'};
@@ -265,27 +266,27 @@ function mapTab(){
   <div class="sheet" id="sheet"></div></div>`;
   map=L.map('map',{zoomControl:false,attributionControl:true}).setView(D.depot,12);
   L.control.zoom({position:'bottomleft'}).addTo(map);
-  const setTile=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(tile)map.removeLayer(tile);tile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':s.a,maxZoom:19,maxNativeZoom:18,className:'tf-'+s.k}))).addTo(map);document.querySelectorAll('#styles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
+  const setTile=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(tile)map.removeLayer(tile);tile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':s.a,maxZoom:20,maxNativeZoom:(s.z&&s.z[i])||18,className:'tf-'+s.k}))).addTo(map);document.querySelectorAll('#styles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
   setTile(styleK);
   document.querySelectorAll('#styles button').forEach(b=>b.onclick=()=>setTile(b.dataset.s));
   const draw=(fit)=>{
     const S=adminState();const pts=[];
     S.forEach(x=>{
       const col=COL[x.state];const html=`<div class="mk ${x.state==='moving'?'mv':''}" style="--c:${col}">🚌<span class="mk-l">${esc(x.d.name.split(' ')[0])}</span></div>`;
-      if(!markers[x.d.u]){const m=L.marker(x.pos,{icon:L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map);m.on('click',()=>{focus=x.d.u;map.setView(x.pos,15);sheet()});markers[x.d.u]={m,state:x.state}}
+      if(!markers[x.d.u]){const m=L.marker(x.pos,{icon:L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map);m.on('click',()=>{focus=x.d.u;map.setView(x.pos,17);sheet()});markers[x.d.u]={m,state:x.state}}
       else{const k=markers[x.d.u];k.m.setLatLng(x.pos);if(k.state!==x.state){k.m.setIcon(L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]}));k.state=x.state}}
       pts.push(x.pos);
     });
-    if(fit&&pts.length)map.fitBounds(pts,{padding:[50,50],maxZoom:14});
+    if(fit&&pts.length)map.fitBounds(pts,{padding:[50,50],maxZoom:16});
     sheet(S);
   };
   const sheet=(S=adminState())=>{
     const c={moving:0,stopped:0,offline:0,off:0};S.forEach(x=>c[x.state]++);
     $('#sheet').innerHTML=`<div class="grab"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${Object.keys(c).map(k=>`<span class="pill" style="--c:${COL[k]}"><i></i>${LBL[k]} ${c[k]}</span>`).join('')}</div>`+
     (LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
-     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':Math.round(x.speed||0)+' كم/س'}</small></span>
+     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':'<span class="spd"><b>'+Math.round(x.speed||0)+'</b> كم/س</span>'}</small></span>
      <span style="text-align:end"><span class="pill" style="--c:${COL[x.state]}"><i></i>${LBL[x.state]}</span><br>${batHtml(x.bat)}</span></button>`).join('');
-    document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,15);sheet()});
+    document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,17);sheet()});
   };
   if(LIVE){pollFleet().then(()=>draw(true));timers.push(setInterval(async()=>{await pollFleet();if(map)draw(false)},3000))}
   else{draw(true);timers.push(setInterval(()=>{stepFleet(2);draw(false)},2000))}
@@ -311,14 +312,14 @@ async function repTab(){
     const E=esc,tot=k=>rows.reduce((a,r)=>a+r[k],0);
     const sum=rows.map(r=>`<tr><td>${E(r.d.name)}<br><small>${E(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('');
     const det=rows.filter(r=>r.l.length).map(r=>`<h3>${E(r.d.name)}</h3><table><thead><tr><th>التاريخ</th><th>الباص</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${E(s.bus||'-')}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`).join('');
-    w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الوقت الإضافي ${month}</title><style>
+    w.document.write(TR(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الوقت الإضافي ${month}</title><style>
     body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#0c1f3a}h1{font-size:20px;margin:0 0 4px}h3{margin:20px 0 6px;font-size:15px}.s{color:#667085;font-size:12px;margin-bottom:12px}
     table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}th,td{border:1px solid #ccd;padding:6px 8px;text-align:right}th{background:#f1ede2}small{color:#667085}.ov{color:#b42318;font-weight:700}tr{page-break-inside:avoid}
     .pb{margin-bottom:14px}@media print{.pb{display:none}}button{padding:8px 16px;font:inherit}</style></head><body>
     <div class="pb"><button onclick="window.print()">طباعة / حفظ كـ PDF</button></div>
-    <h1>تقرير الوقت الإضافي · ${month}</h1><div class="s">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه · أُنشئ ${new Date().toLocaleString('ar-SA')}</div>
+    <h1>تقرير الوقت الإضافي · ${month}</h1><div class="s">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه · أُنشئ ${new Date().toLocaleString(LANGX==='en'?'en-GB':'ar-SA')}</div>
     <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>أيام فيها إضافي</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#faf7f0"><td>الإجمالي</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${tot('otDays')}</td></tr></tbody></table>${det}
-    <script>setTimeout(function(){window.print()},500)<\/script></body></html>`);w.document.close()};
+    <script>setTimeout(function(){window.print()},500)<\/script></body></html>`).replace(/lang="ar" dir="rtl"/,LANGX==='en'?'lang="en" dir="ltr"':'lang="ar" dir="rtl"'));w.document.close()};
   document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>{const r=rows.find(x=>x.d.u===t.dataset.u);
     $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
     $('#dr').classList.add('on')});
