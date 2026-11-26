@@ -78,3 +78,4 @@ td.ov{font-weight:800;color:var(--bad)}tr.clk{cursor:pointer}tr.clk:hover{backgr
 html.en .spd{direction:ltr}
 .spd{white-space:nowrap}.spd b{margin-inline-end:3px}
 .drow .spd b{display:inline}
+.tf-ov{filter:invert(1) grayscale(1) brightness(1.7) contrast(1.6);mix-blend-mode:screen;opacity:.8}

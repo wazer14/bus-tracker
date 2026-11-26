@@ -204,9 +204,8 @@ function driverLive(){
 /* ---------- admin ---------- */
 const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
 const STYLES=[
- {k:'osm',n:'خريطة الشوارع',l:[ESRI+'World_Street_Map/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri'},
  {k:'std',n:'تفصيلي (OSM)',l:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],z:[19],a:'© OpenStreetMap contributors'},
- {k:'sat',n:'قمر صناعي',z:[19,18,18],l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
+ {k:'sat',n:'قمر صناعي',z:[19,19,18,18],c:['tf-sat','tf-ov','tf-sat','tf-sat'],l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}','https://tile.openstreetmap.org/{z}/{x}/{y}.png',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
 ];
 const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
 const LBL={moving:'متحرك',stopped:'متوقف',offline:'لا يوجد اتصال',off:'خارج الدوام'};
@@ -251,7 +250,7 @@ function adminState(){
   });
 }
 const batHtml=b=>b==null?'<span class="bat">—</span>':`<span class="bat" style="color:${b<=20?'#dc2626':b<=40?'#d97706':'#16a34a'}">🔋 ${b}%</span>`;
-let tab='map',styleK=['osm','sat'].includes(localStorage.getItem('bt.style'))?localStorage.getItem('bt.style'):'osm',tile=null,markers={},focus=null,month=new Date().toISOString().slice(0,7);
+let tab='map',styleK=['std','sat'].includes(localStorage.getItem('bt.style'))?localStorage.getItem('bt.style'):'std',tile=null,markers={},focus=null,month=new Date().toISOString().slice(0,7);
 function adminView(){
   clearTimers();markers={};
   $('#app').innerHTML=`<div class="top"><div><b>لوحة الإدارة</b><small>${esc(LIVE&&session?.name||D.admin.name)}${session?.sub?' · مدير التشغيل':''}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
@@ -266,7 +265,7 @@ function mapTab(){
   <div class="sheet" id="sheet"></div></div>`;
   map=L.map('map',{zoomControl:false,attributionControl:true}).setView(D.depot,12);
   L.control.zoom({position:'bottomleft'}).addTo(map);
-  const setTile=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(tile)map.removeLayer(tile);tile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':s.a,maxZoom:20,maxNativeZoom:(s.z&&s.z[i])||18,className:'tf-'+s.k}))).addTo(map);document.querySelectorAll('#styles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
+  const setTile=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(tile)map.removeLayer(tile);tile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':(s.k==='sat'?s.a+' | © OpenStreetMap contributors':s.a),maxZoom:20,maxNativeZoom:(s.z&&s.z[i])||18,className:(s.c&&s.c[i])||'tf-'+s.k}))).addTo(map);document.querySelectorAll('#styles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
   setTile(styleK);
   document.querySelectorAll('#styles button').forEach(b=>b.onclick=()=>setTile(b.dataset.s));
   const draw=(fit)=>{
