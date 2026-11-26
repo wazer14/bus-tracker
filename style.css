@@ -82,3 +82,4 @@ html.en .spd{direction:ltr}
 
 .tf-halo{filter:grayscale(1) contrast(9) brightness(1.5) blur(1.8px) contrast(2.4);mix-blend-mode:multiply}
 .tf-txt{filter:invert(1) grayscale(1) contrast(9) brightness(1.2);mix-blend-mode:screen}
+.mk.lost{animation:lostp 1.2s infinite}.mk.lost .mk-l{background:#dc2626;color:#fff}@keyframes lostp{50%{box-shadow:0 0 0 10px rgba(220,38,38,.25)}}

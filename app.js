@@ -66,7 +66,7 @@ function loginView(msg=''){
     else{const d=drv(u);if(d&&d.p===p)session={u,role:'driver'};else{$('#er').textContent='اسم المستخدم أو كلمة المرور غير صحيحة';return}}
     jset('bt.session',session);route();};
 }
-const logout=()=>{if(session?.role==='driver'&&(jget('bt.shift.'+session.u,null)||session.open)&&!confirm('عندك دوام شغال. تبي تخرج بدون تسليم الباص؟ الدوام يبقى شغال.'))return;LS.removeItem('bt.session');session=null;route()};
+const logout=()=>{if(session?.role==='driver'&&(jget('bt.shift.'+session.u,null)||session.open)){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}LS.removeItem('bt.session');session=null;route()};
 
 /* ---------- driver ---------- */
 function driverView(){
@@ -145,7 +145,7 @@ function driverLive(){
    <div class="stats"><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
    <div class="card" id="last"></div>
    <div class="note">يرسل التطبيق موقعك وبطارية جوالك للإدارة أثناء فتحه. أبقِ التطبيق مفتوحًا وشاشة الجوال شغالة أثناء الدوام.</div></div>`;
-  $('#lo').onclick=logout;
+  $('#lo').onclick=()=>{if(st.shift){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}logout()};
   const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=startGeo)};
   const netUi=()=>{$('#net').innerHTML=st.net?'':'<div class="banner bad">لا يوجد اتصال بالخادم. نعيد المحاولة تلقائيًا.</div>'};
   async function send(){
@@ -207,8 +207,8 @@ const STYLES=[
  {k:'std',n:'تفصيلي (OSM)',l:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],z:[19],a:'© OpenStreetMap contributors'},
  {k:'sat',n:'قمر صناعي',z:[19,19,19,19,18,18],c:['tf-sat','tf-halo','tf-halo','tf-txt','tf-sat','tf-sat'],l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}','https://tile.openstreetmap.org/{z}/{x}/{y}.png','https://tile.openstreetmap.org/{z}/{x}/{y}.png','https://tile.openstreetmap.org/{z}/{x}/{y}.png',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
 ];
-const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
-const LBL={moving:'متحرك',stopped:'متوقف',offline:'لا يوجد اتصال',off:'خارج الدوام'};
+const COL={lost:'#dc2626',moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
+const LBL={lost:'غير متصل أثناء الدوام',moving:'متحرك',stopped:'متوقف',offline:'لا يوجد اتصال',off:'خارج الدوام'};
 /* simulation of demo fleet */
 const FLEET={};
 function initFleet(){
@@ -240,7 +240,7 @@ function stepFleet(dt){ // dt seconds
 let LFLEET=[];
 async function pollFleet(){try{const r=await api('/api/fleet');LFLEET=r.drivers;}catch(e){}}
 function adminState(){
-  if(LIVE)return LFLEET.filter(x=>x.lat!=null).map(x=>({d:{u:x.u,name:x.name,phone:x.phone},state:x.state,pos:[x.lat,x.lon],speed:x.speed,km:x.km,trips:x.trips,bat:x.bat,real:false,bus:x.bus||'-',seen:x.lastSeen,onShift:x.onShift}));
+  if(LIVE)return LFLEET.filter(x=>x.lat!=null).map(x=>({d:{u:x.u,name:x.name,phone:x.phone},state:(x.state==='offline'&&x.onShift?'lost':x.state),pos:[x.lat,x.lon],speed:x.speed,km:x.km,trips:x.trips,bat:x.bat,real:false,bus:x.bus||'-',seen:x.lastSeen,onShift:x.onShift}));
   const live=u=>{const l=jget('bt.live.'+u,null);return l&&Date.now()-l.ts<5*60e3?l:null};
   return D.drivers.map(d=>{
     const f=FLEET[d.u],l=live(d.u);
@@ -271,19 +271,19 @@ function mapTab(){
   const draw=(fit)=>{
     const S=adminState();const pts=[];
     S.forEach(x=>{
-      const col=COL[x.state];const html=`<div class="mk ${x.state==='moving'?'mv':''}" style="--c:${col}">🚌<span class="mk-l">${esc(x.d.name.split(' ')[0])}</span></div>`;
-      if(!markers[x.d.u]){const m=L.marker(x.pos,{icon:L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map);m.on('click',()=>{focus=x.d.u;map.setView(x.pos,17);sheet()});markers[x.d.u]={m,state:x.state}}
-      else{const k=markers[x.d.u];k.m.setLatLng(x.pos);if(k.state!==x.state){k.m.setIcon(L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]}));k.state=x.state}}
+      const col=COL[x.state];const html=`<div class="mk ${x.state==='moving'?'mv':''} ${x.state==='lost'?'lost':''}" style="--c:${col}">🚌<span class="mk-l">${esc(x.d.name.split(' ')[0])}${x.state==='lost'&&x.seen?' · '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':''}</span></div>`;
+      if(!markers[x.d.u]){const m=L.marker(x.pos,{icon:L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map);m.on('click',()=>{focus=x.d.u;map.setView(x.pos,17);sheet()});markers[x.d.u]={m,state:html}}
+      else{const k=markers[x.d.u];k.m.setLatLng(x.pos);if(k.state!==html){k.m.setIcon(L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]}));k.state=html}}
       pts.push(x.pos);
     });
     if(fit&&pts.length)map.fitBounds(pts,{padding:[50,50],maxZoom:16});
     sheet(S);
   };
   const sheet=(S=adminState())=>{
-    const c={moving:0,stopped:0,offline:0,off:0};S.forEach(x=>c[x.state]++);
+    const c={lost:0,moving:0,stopped:0,offline:0,off:0};S.sort((p,q)=>(q.state==='lost')-(p.state==='lost'));S.forEach(x=>c[x.state]++);
     $('#sheet').innerHTML=`<div class="grab"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${Object.keys(c).map(k=>`<span class="pill" style="--c:${COL[k]}"><i></i>${LBL[k]} ${c[k]}</span>`).join('')}</div>`+
-    (LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
-     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':'<span class="spd"><b>'+Math.round(x.speed||0)+'</b> كم/س</span>'}</small></span>
+    (c.lost?`<div class="banner bad" style="margin:4px 0 8px;font-weight:700">⚠ ${c.lost} سائق غير متصل أثناء الدوام. آخر موقع معروف ظاهر على الخريطة.</div>`:'')+(LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${x.state==='lost'?'background:#fee2e2;border-inline-start:4px solid #dc2626':focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
+     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${(x.state==='offline'||x.state==='lost')&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':'<span class="spd"><b>'+Math.round(x.speed||0)+'</b> كم/س</span>'}</small></span>
      <span style="text-align:end"><span class="pill" style="--c:${COL[x.state]}"><i></i>${LBL[x.state]}</span><br>${batHtml(x.bat)}</span></button>`).join('');
     document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,17);sheet()});
   };
