@@ -1,0 +1,12 @@
+name = "bus-tracker-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bus-tracker"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+
+[vars]
+ALLOWED_ORIGIN = "https://wazer14.github.io"
+# Secrets (never in this file): JWT_SECRET, ADMIN_PASSWORD  ->  wrangler secret put <NAME>
