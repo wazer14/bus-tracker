@@ -76,3 +76,4 @@ td.ov{font-weight:800;color:var(--bad)}tr.clk{cursor:pointer}tr.clk:hover{backgr
 .lg{color:#fff;font-size:13px;padding:6px 10px;border:1px solid #2b4673;border-radius:10px;background:transparent;cursor:pointer;font-family:inherit}
 .login>.lg{align-self:flex-end;margin-bottom:10px}
 html.en .spd{direction:ltr}
+.spd{white-space:nowrap}.spd b{margin-inline-end:3px}
