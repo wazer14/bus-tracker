@@ -16,7 +16,7 @@ const eq=(a,b)=>{if(a.length!==b.length)return false;let r=0;for(let i=0;i<a.len
 const toRad=x=>x*Math.PI/180;
 const dist=(a,b,c,d)=>{const dl=toRad(c-a),dn=toRad(d-b);const x=Math.sin(dl/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dn/2)**2;return 12742*Math.asin(Math.sqrt(x))};
 const cors=(env,req)=>{const o=req.headers.get('Origin');const ok=o&&(o===env.ALLOWED_ORIGIN||/^http:\/\/localhost(:\d+)?$/.test(o));
-  return {'Access-Control-Allow-Origin':ok?o:env.ALLOWED_ORIGIN,'Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Allow-Methods':'GET,POST,PATCH,DELETE,OPTIONS','Vary':'Origin'}};
+  return {'Access-Control-Allow-Origin':ok?o:env.ALLOWED_ORIGIN,'Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Allow-Methods':'GET,POST,PUT,PATCH,DELETE,OPTIONS','Vary':'Origin'}};
 const J=(d,s,h)=>new Response(JSON.stringify(d),{status:s||200,headers:{'content-type':'application/json',...h}});
 const num=(v,min,max)=>{v=Number(v);return Number.isFinite(v)&&v>=min&&v<=max?v:null};
 const str=(v,n)=>typeof v==='string'&&v.trim()&&v.length<=n?v.trim():null;

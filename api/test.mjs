@@ -38,4 +38,5 @@ r=await call('POST','/api/drivers',{u:'d2',name:'Two',password:'longenough2'},M)
 r=await call('DELETE','/api/drivers/d2',null,M);t('delete driver',r.s===200);
 r=await call('GET','/api/drivers',null,A);t('driver gone',!r.b.find(x=>x.u==='d2'));
 r=await call('POST','/api/login',{u:'d2',p:'longenough2'});t('deleted driver cannot login',r.s===401);
+const o2=await worker.fetch(new Request('https://api.test/api/manager',{method:'OPTIONS',headers:{Origin:'https://x.github.io'}}),env);t('cors allows PUT',(o2.headers.get('Access-Control-Allow-Methods')||'').includes('PUT'));
 process.exit(ok?0:1);
