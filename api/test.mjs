@@ -26,4 +26,16 @@ for(let i=0;i<6;i++)r=await call('POST','/api/login',{u:'d1',p:'nope'});t('locko
 const o=await worker.fetch(new Request('https://api.test/api/fleet',{method:'OPTIONS',headers:{Origin:'https://x.github.io'}}),env);t('cors preflight',o.status===204&&o.headers.get('Access-Control-Allow-Origin')==='https://x.github.io');
 r=await call('POST','/api/position',{lat:24.7,lon:46.7,speed:0},D);t('position accepted off shift (last known)',r.b.ok===true);
 r=await call('GET','/api/fleet',null,A);t('last known location kept off shift, flagged',r.b.drivers[0].lat===24.7&&r.b.drivers[0].onShift===false);
+r=await call('POST','/api/me/password',{current:'bad',password:'newadminpw1'},A);t('admin pw change needs current',r.s===403);
+r=await call('POST','/api/me/password',{current:'adminpass123',password:'newadminpw1'},A);t('admin pw change',r.s===200);
+r=await call('POST','/api/login',{u:'admin',p:'newadminpw1'});t('new admin pw works',r.s===200);
+r=await call('PUT','/api/manager',{u:'ops',name:'Ops',password:'opspass1234'},A);t('create manager',r.s===201);
+r=await call('POST','/api/login',{u:'ops',p:'opspass1234'});t('manager login admin powers',r.s===200&&r.b.user.role==='admin'&&r.b.user.sub==='manager');const M=r.b.token;
+r=await call('GET','/api/fleet',null,M);t('manager reads fleet',r.s===200);
+r=await call('GET','/api/manager',null,M);t('manager cannot manage manager',r.s===403);
+r=await call('POST','/api/me/password',{current:'opspass1234',password:'opsnewpass12'},M);t('manager changes own pw',r.s===200);
+r=await call('POST','/api/drivers',{u:'d2',name:'Two',password:'longenough2'},M);t('manager adds driver',r.s===201);
+r=await call('DELETE','/api/drivers/d2',null,M);t('delete driver',r.s===200);
+r=await call('GET','/api/drivers',null,A);t('driver gone',!r.b.find(x=>x.u==='d2'));
+r=await call('POST','/api/login',{u:'d2',p:'longenough2'});t('deleted driver cannot login',r.s===401);
 process.exit(ok?0:1);

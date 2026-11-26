@@ -37,7 +37,7 @@ async function login(env,req,H){
   if(!row||!eq(h,row.pw_hash)){await env.DB.prepare('INSERT INTO login_fail(k,n,ts) VALUES(?,1,?) ON CONFLICT(k) DO UPDATE SET n=CASE WHEN ?-ts>900000 THEN 1 ELSE n+1 END,ts=?').bind(k,Date.now(),Date.now(),Date.now()).run();return J({error:'invalid_credentials'},401,H)}
   await env.DB.prepare('DELETE FROM login_fail WHERE k=?').bind(k).run();
   const token=await sign(env,{u:row.u,role:row.role,exp:Date.now()+14*86400e3});
-  return J({token,user:{u:row.u,name:row.name,role:row.role,bus:row.bus}},200,H);
+  return J({token,user:{u:row.u,name:row.name,role:row.role,bus:row.bus,sub:row.sub||null}},200,H);
 }
 const stateOf=(p,onShift,now)=>(!p||now-p.ts>ONLINE_MS)?(onShift||p?'offline':'off'):p.moving?'moving':'stopped';
 
@@ -62,7 +62,7 @@ async function position(env,me,req,H){
   return J({ok:true,ts:now},200,H);
 }
 async function meInfo(env,me){
-  const u=await env.DB.prepare('SELECT u,name,phone,role,bus FROM users WHERE u=?').bind(me.u).first();
+  const u=await env.DB.prepare('SELECT u,name,phone,role,bus,sub FROM users WHERE u=?').bind(me.u).first();
   const shift=await env.DB.prepare('SELECT id,bus,start_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
   const last=await env.DB.prepare('SELECT bus,start_ts,end_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 5').bind(me.u).all();
   const buses=await env.DB.prepare('SELECT id,label FROM buses WHERE active=1 ORDER BY id').all();
@@ -94,9 +94,9 @@ export default {
       if(path==='/api/login'&&req.method==='POST')return await login(env,req,H);
       const me=await verify(env,(req.headers.get('authorization')||'').replace(/^Bearer /,''));
       if(!me)return J({error:'unauthorized'},401,H);
-      const live=await env.DB.prepare('SELECT active,role FROM users WHERE u=?').bind(me.u).first();
+      const live=await env.DB.prepare('SELECT active,role,sub FROM users WHERE u=?').bind(me.u).first();
       if(!live||!live.active)return J({error:'unauthorized'},401,H);
-      me.role=live.role;
+      me.role=live.role;me.sub=live.sub;
       const adminOnly=()=>me.role==='admin'?null:J({error:'forbidden'},403,H);
       if(path==='/api/me'&&req.method==='GET')return J(await meInfo(env,me),200,H);
       if(path==='/api/position'&&req.method==='POST')return me.role==='driver'?await position(env,me,req,H):J({error:'forbidden'},403,H);
@@ -114,7 +114,38 @@ export default {
         const end=Date.now();await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE id=?').bind(end,sh.id).run();
         return J({...(await meInfo(env,me)),ended:{start_ts:sh.start_ts,end_ts:end,overtimeMs:Math.max(0,end-sh.start_ts-H8)}},200,H);
       }
+      if(path==='/api/me/password'&&req.method==='POST'){
+        if(me.role!=='admin')return J({error:'forbidden'},403,H);
+        const b=await req.json().catch(()=>({}));const cur=typeof b.current==='string'?b.current:'',np=typeof b.password==='string'?b.password:'';
+        if(np.length<8)return J({error:'password_too_short'},400,H);
+        const row=await env.DB.prepare('SELECT * FROM users WHERE u=?').bind(me.u).first();
+        if(!row||!eq(await hashPw(cur,row.pw_salt),row.pw_hash))return J({error:'wrong_password'},403,H);
+        const salt=newSalt();await env.DB.prepare('UPDATE users SET pw_hash=?,pw_salt=? WHERE u=?').bind(await hashPw(np,salt),salt,me.u).run();
+        return J({ok:true},200,H);
+      }
       let f;if(f=adminOnly())return f;
+      if(path==='/api/manager'&&req.method==='GET'){
+        if(me.sub)return J({error:'forbidden'},403,H);
+        return J({manager:await env.DB.prepare("SELECT u,name,active FROM users WHERE sub='manager'").first()},200,H);
+      }
+      if(path==='/api/manager'&&req.method==='PUT'){
+        if(me.sub)return J({error:'forbidden'},403,H);
+        const b=await req.json().catch(()=>({}));const cur=await env.DB.prepare("SELECT u FROM users WHERE sub='manager'").first();
+        const u=str(b.u,40)?.toLowerCase()||cur?.u,name=str(b.name,80)||'مدير التشغيل',pw=typeof b.password==='string'?b.password:'';
+        if(!u||!/^[a-z0-9._-]+$/.test(u)||u==='admin')return J({error:'bad_request'},400,H);
+        if(cur&&u!==cur.u&&await env.DB.prepare('SELECT 1 FROM users WHERE u=?').bind(u).first())return J({error:'exists'},409,H);
+        if(!cur){if(pw.length<8)return J({error:'password_too_short'},400,H);
+          if(await env.DB.prepare('SELECT 1 FROM users WHERE u=?').bind(u).first())return J({error:'exists'},409,H);
+          const salt=newSalt();await env.DB.prepare("INSERT INTO users(u,name,role,sub,pw_hash,pw_salt,created_at) VALUES(?,?,'admin','manager',?,?,?)").bind(u,name,await hashPw(pw,salt),salt,Date.now()).run();return J({ok:true,created:true},201,H)}
+        if(pw&&pw.length<8)return J({error:'password_too_short'},400,H);
+        await env.DB.prepare("UPDATE users SET u=?,name=?,active=1 WHERE sub='manager'").bind(u,name).run();
+        if(pw){const salt=newSalt();await env.DB.prepare("UPDATE users SET pw_hash=?,pw_salt=? WHERE sub='manager'").bind(await hashPw(pw,salt),salt).run()}
+        return J({ok:true},200,H);
+      }
+      if(path==='/api/manager'&&req.method==='DELETE'){
+        if(me.sub)return J({error:'forbidden'},403,H);
+        await env.DB.prepare("DELETE FROM users WHERE sub='manager'").run();return J({ok:true},200,H);
+      }
       if(path==='/api/fleet'&&req.method==='GET')return J(await fleet(env),200,H);
       if(path==='/api/report'&&req.method==='GET'){const r=await report(env,url.searchParams.get('month')||'');return r?J(r,200,H):J({error:'bad_month'},400,H)}
       if(path==='/api/drivers'&&req.method==='GET')return J((await env.DB.prepare("SELECT u,name,phone,bus,active FROM users WHERE role='driver' ORDER BY name").all()).results,200,H);
@@ -134,6 +165,12 @@ export default {
         if(b.bus!==undefined)await env.DB.prepare("UPDATE users SET bus=? WHERE u=? AND role='driver'").bind(str(b.bus,40),u).run();
         if(b.active!==undefined)await env.DB.prepare("UPDATE users SET active=? WHERE u=? AND role='driver'").bind(b.active?1:0,u).run();
         return J({ok:true},200,H);
+      }
+      if(m&&req.method==='DELETE'){
+        const u=m[1];const row=await env.DB.prepare("SELECT u FROM users WHERE u=? AND role='driver'").bind(u).first();if(!row)return J({error:'not_found'},404,H);
+        if(await env.DB.prepare('SELECT 1 FROM shifts WHERE u=? AND end_ts IS NULL').bind(u).first())return J({error:'shift_open'},409,H);
+        await env.DB.prepare('DELETE FROM shifts WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(u).run();
+        await env.DB.prepare("DELETE FROM users WHERE u=? AND role='driver'").bind(u).run();return J({ok:true},200,H);
       }
       if(path==='/api/buses'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const id=str(b.id,40);if(!id)return J({error:'bad_request'},400,H);await env.DB.prepare('INSERT OR REPLACE INTO buses(id,label,active) VALUES(?,?,1)').bind(id,str(b.label,80)).run();return J({ok:true},201,H)}
       return J({error:'not_found'},404,H);

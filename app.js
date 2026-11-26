@@ -61,7 +61,7 @@ function loginView(msg=''){
   document.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>{const[a,c]=b.dataset.fill.split('|');$('#u').value=a;$('#p').value=c});
   if(LIVE){$('.demo-box').innerHTML='النظام متصل بالخادم. استخدم اسم المستخدم وكلمة المرور اللي أعطاك إياها المدير.';}
   $('#lf').onsubmit=async e=>{e.preventDefault();const u=$('#u').value.trim().toLowerCase(),p=$('#p').value;
-    if(LIVE){try{const r=await api('/api/login',{method:'POST',body:{u,p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus};jset('bt.session',session);route()}catch(e){$('#er').textContent=errMsg(e)}return}
+    if(LIVE){try{const r=await api('/api/login',{method:'POST',body:{u,p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}catch(e){$('#er').textContent=errMsg(e)}return}
     if(u===D.admin.u&&p===D.admin.p)session={u,role:'admin'};
     else{const d=drv(u);if(d&&d.p===p)session={u,role:'driver'};else{$('#er').textContent='اسم المستخدم أو كلمة المرور غير صحيحة';return}}
     jset('bt.session',session);route();};
@@ -253,12 +253,12 @@ const batHtml=b=>b==null?'<span class="bat">—</span>':`<span class="bat" style
 let tab='map',styleK=['osm','sat'].includes(localStorage.getItem('bt.style'))?localStorage.getItem('bt.style'):'osm',tile=null,markers={},focus=null,month=new Date().toISOString().slice(0,7);
 function adminView(){
   clearTimers();markers={};
-  $('#app').innerHTML=`<div class="top"><div><b>لوحة الإدارة</b><small>${esc(D.admin.name)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
-  <div class="tabs"><button class="tab ${tab==='map'?'on':''}" data-t="map">الخريطة المباشرة</button><button class="tab ${tab==='rep'?'on':''}" data-t="rep">تقرير الوقت الإضافي</button>${LIVE?`<button class="tab ${tab==='drv'?'on':''}" data-t="drv">السائقون</button>`:''}</div>
+  $('#app').innerHTML=`<div class="top"><div><b>لوحة الإدارة</b><small>${esc(LIVE&&session?.name||D.admin.name)}${session?.sub?' · مدير التشغيل':''}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
+  <div class="tabs"><button class="tab ${tab==='map'?'on':''}" data-t="map">الخريطة المباشرة</button><button class="tab ${tab==='rep'?'on':''}" data-t="rep">تقرير الوقت الإضافي</button>${LIVE?`<button class="tab ${tab==='drv'?'on':''}" data-t="drv">السائقون</button><button class="tab ${tab==='acc'?'on':''}" data-t="acc">حسابي</button>`:''}</div>
   <div class="admin" id="body"></div><div class="drawer" id="dr"><div class="in" id="drin"></div></div>`;
   $('#lo').onclick=logout;$('#dr').onclick=e=>{if(e.target.id==='dr')$('#dr').classList.remove('on')};
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{tab=b.dataset.t;adminView()});
-  tab==='map'?mapTab():tab==='drv'&&LIVE?drvTab():repTab();
+  tab==='map'?mapTab():tab==='drv'&&LIVE?drvTab():tab==='acc'&&LIVE?accTab():repTab();
 }
 function mapTab(){
   $('#body').innerHTML=`<div class="mapwrap"><div id="map"></div><div class="styles" id="styles">${STYLES.map(s=>`<button data-s="${s.k}" class="${s.k===styleK?'on':''}">${s.n}</button>`).join('')}</div>
@@ -283,7 +283,7 @@ function mapTab(){
     const c={moving:0,stopped:0,offline:0,off:0};S.forEach(x=>c[x.state]++);
     $('#sheet').innerHTML=`<div class="grab"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${Object.keys(c).map(k=>`<span class="pill" style="--c:${COL[k]}"><i></i>${LBL[k]} ${c[k]}</span>`).join('')}</div>`+
     (LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
-     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.km.toFixed(1)} كم · ${x.trips} رحلة · ${x.onShift===false?'خارج الدوام · ':''}${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':Math.round(x.speed||0)+' كم/س'}</small></span>
+     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.km.toFixed(1)} كم · ${x.onShift===false?'خارج الدوام · ':''}${x.state==='offline'&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':Math.round(x.speed||0)+' كم/س'}</small></span>
      <span style="text-align:end"><span class="pill" style="--c:${COL[x.state]}"><i></i>${LBL[x.state]}</span><br>${batHtml(x.bat)}</span></button>`).join('');
     document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,15);sheet()});
   };
@@ -313,6 +313,22 @@ async function repTab(){
 }
 
 
+async function accTab(){
+  let mg=null;if(!session.sub){try{mg=(await api('/api/manager')).manager}catch(e){if(e.message==='unauth')return}}
+  $('#body').innerHTML=`<div class="rep"><div class="card"><b>تغيير كلمة مروري (${esc(session.u)})</b>
+   <label class="f">كلمة المرور الحالية</label><input class="t" id="pc" type="password" autocomplete="current-password">
+   <label class="f">كلمة المرور الجديدة (8 أحرف على الأقل)</label><input class="t" id="pn" type="password" autocomplete="new-password">
+   <div class="err" id="pe"></div><button class="btn gold" id="ps">حفظ</button></div>
+   ${session.sub?'':`<div class="card" style="margin-top:14px"><b>مدير التشغيل</b><small style="display:block;color:#667085;margin:4px 0">نفس صلاحيات الأدمن، بحساب منفصل. ${mg?'الحساب الحالي: '+esc(mg.u)+(mg.active?'':' (موقوف)'):'لم يتم إنشاؤه بعد.'}</small>
+   <label class="f">اسم المستخدم (إنجليزي)</label><input class="t" id="mu" autocapitalize="off" value="${esc(mg?.u||'')}">
+   <label class="f">الاسم</label><input class="t" id="mn" style="direction:rtl" value="${esc(mg?.name||'مدير التشغيل')}">
+   <label class="f">كلمة المرور ${mg?'(اتركها فارغة بدون تغيير)':'(8 أحرف على الأقل)'}</label><input class="t" id="mw" type="text" autocomplete="off">
+   <div class="err" id="me"></div><button class="btn gold" id="ms">${mg?'تحديث':'إنشاء'}</button>${mg?' <button class="btn ghost" id="md" style="color:#c0392b">حذف الحساب</button>':''}</div>`}</div>`;
+  $('#ps').onclick=async()=>{try{await api('/api/me/password',{method:'POST',body:{current:$('#pc').value,password:$('#pn').value}});$('#pc').value=$('#pn').value='';$('#pe').textContent='';toast('تم تغيير كلمة المرور')}catch(e){$('#pe').textContent=e.code==='wrong_password'||e.message==='wrong_password'?'كلمة المرور الحالية غير صحيحة':e.code==='password_too_short'||e.message==='password_too_short'?'كلمة المرور الجديدة 8 أحرف على الأقل':errMsg(e)}};
+  if($('#ms'))$('#ms').onclick=async()=>{try{await api('/api/manager',{method:'PUT',body:{u:$('#mu').value,name:$('#mn').value,password:$('#mw').value}});toast('تم حفظ حساب مدير التشغيل');accTab()}catch(e){$('#me').textContent=e.code==='exists'||e.message==='exists'?'اسم المستخدم مستخدم':e.code==='password_too_short'||e.message==='password_too_short'?'كلمة المرور 8 أحرف على الأقل':e.code==='bad_request'||e.message==='bad_request'?'اسم المستخدم حروف إنجليزية وأرقام':errMsg(e)}};
+  if($('#md'))$('#md').onclick=async()=>{if(!confirm('حذف حساب مدير التشغيل؟'))return;await api('/api/manager',{method:'DELETE'});toast('تم الحذف');accTab()};
+}
+
 async function drvTab(){
   let list=[];try{list=await api('/api/drivers')}catch(e){if(e.message==='unauth')return}
   let buses=[];
@@ -325,10 +341,11 @@ async function drvTab(){
    <div class="err" id="de"></div><button class="btn gold" id="da">إضافة</button></div>
    <h3 style="margin:18px 0 8px">السائقون (${list.length})</h3>
    <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th><th></th></tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#667085">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}</td>
-    <td><button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button></td></tr>`).join('')}</tbody></table></div>`;
+    <td><button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td></tr>`).join('')}</tbody></table></div>`;
   $('#da').onclick=async()=>{try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u:$('#du').value,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value}});
       const b=$('#db').value.trim();if(b)await api('/api/buses',{method:'POST',body:{id:b}}).catch(()=>{});toast('تمت إضافة السائق');drvTab()}catch(e){$('#de').textContent=e.code==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 8 أحرف أو أكثر':errMsg(e)}};
   document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.pw+' (8 أحرف على الأقل)');if(!p)return;try{await api('/api/drivers/'+b.dataset.pw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const[u,n]=b.dataset.del.split('|');if(!confirm('حذف السائق '+n+' نهائيا؟ سيتم حذف بياناته وسجل دوامه ولا يمكن التراجع. (للإيقاف المؤقت استخدم إيقاف)'))return;if(!confirm('تأكيد أخير: حذف '+n+' نهائيا؟'))return;try{await api('/api/drivers/'+u,{method:'DELETE'});toast('تم حذف السائق');drvTab()}catch(e){toast(e.code==='shift_open'||e.message==='shift_open'?'السائق عنده دوام مفتوح، لازم يسلم الباص أولا':errMsg(e))}});
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const[u,a]=b.dataset.act.split('|');await api('/api/drivers/'+u,{method:'PATCH',body:{active:a==='1'}});drvTab()});
 }
 
