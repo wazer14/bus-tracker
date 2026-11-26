@@ -204,7 +204,7 @@ function driverLive(){
 /* ---------- admin ---------- */
 const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
 const STYLES=[
- {k:'osm',n:'خريطة الشوارع',l:[ESRI+'World_Street_Map/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri'},
+ {k:'osm',n:'خريطة الشوارع',l:['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'],a:'© OpenStreetMap contributors © CARTO'},
  {k:'sat',n:'قمر صناعي',l:[ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri, Maxar, Earthstar Geographics'}
 ];
 const COL={moving:'#16a34a',stopped:'#d97706',offline:'#6b7280',off:'#94a3b8'};
