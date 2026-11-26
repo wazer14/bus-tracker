@@ -77,3 +77,4 @@ td.ov{font-weight:800;color:var(--bad)}tr.clk{cursor:pointer}tr.clk:hover{backgr
 .login>.lg{align-self:flex-end;margin-bottom:10px}
 html.en .spd{direction:ltr}
 .spd{white-space:nowrap}.spd b{margin-inline-end:3px}
+.drow .spd b{display:inline}
