@@ -39,20 +39,49 @@ const errMsg=e=>ERR[e.code]||(e.status?'تعذر تنفيذ الطلب':'لا ي
 const BIO=NATIVE&&window.Capacitor.Plugins&&window.Capacitor.Plugins.BioAuth||null;
 const unorm=v=>String(v||'').normalize('NFKC').replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[۰-۹]/g,c=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(c)).trim().toLowerCase();
 async function bioOffer(u,p){
-  if(!BIO||LS.getItem('bt.bio.no')==='1')return;
+  if(!BIO)return;
+  const want=LS.getItem('bt.bio.want')==='1';
+  if(!want&&LS.getItem('bt.bio.no')==='1')return;
   try{const h=await BIO.has();if(h&&h.ok)return;const av=await BIO.available();if(!av||!av.ok)return;
-    if(!confirm(LANGX==='en'?'Enable fingerprint sign-in on this device?\nYou will open the app with your fingerprint instead of typing your username and password.':'تفعيل الدخول بالبصمة على هذا الجهاز؟\nبتفتح التطبيق بعدها ببصمتك بدون كتابة اسم المستخدم وكلمة المرور.')){LS.setItem('bt.bio.no','1');return}
-    await BIO.save({u,p});toast(LANGX==='en'?'Fingerprint sign-in enabled':'تم تفعيل الدخول بالبصمة')}catch(_){}}
+    if(!want&&!confirm(LANGX==='en'?'Enable fingerprint sign-in on this device?\nYou will open the app with your fingerprint instead of typing your username and password.':'تفعيل الدخول بالبصمة على هذا الجهاز؟\nبتفتح التطبيق بعدها ببصمتك بدون كتابة اسم المستخدم وكلمة المرور.')){LS.setItem('bt.bio.no','1');return}
+    await BIO.save({u,p});LS.removeItem('bt.bio.want');toast(LANGX==='en'?'Fingerprint sign-in enabled':'تم تفعيل الدخول بالبصمة')}catch(_){}}
+async function bioRow(){
+  const old=$('#biorow');old&&old.remove();
+  let h=null;try{h=await BIO.has()}catch(_){}
+  const on=!!(h&&h.ok);
+  $('#lf').insertAdjacentHTML('beforeend','<div id="biorow">'+(on
+    ?'<button type="button" class="btn gold" id="bio" style="width:100%;margin-top:10px">'+(LANGX==='en'?'🔓 Sign in with fingerprint':'🔓 دخول بالبصمة')+'</button><button type="button" class="btn sm ghost" id="biooff" style="width:100%;margin-top:8px">'+(LANGX==='en'?'Turn off fingerprint sign-in on this device':'إيقاف الدخول بالبصمة على هذا الجهاز')+'</button>'
+    :'<button type="button" class="btn sm ghost" id="bioon" style="width:100%;margin-top:10px">'+(LANGX==='en'?'🔒 Turn on fingerprint sign-in':'🔒 تفعيل الدخول بالبصمة')+'</button>')+'</div>');
+  if(on){
+    $('#biooff').onclick=async()=>{try{await BIO.clear()}catch(_){}LS.setItem('bt.bio.no','1');toast(LANGX==='en'?'Fingerprint sign-in turned off':'تم إيقاف الدخول بالبصمة');bioRow()};
+    const go=async()=>{let c;try{c=await BIO.unlock({lang:LANGX})}catch(e){if(!e||e.message!=='cancelled')$('#er').textContent=LANGX==='en'?'Fingerprint unavailable. Sign in with your password.':'تعذر استخدام البصمة. سجّل بكلمة المرور.';return}
+      try{const r=await api('/api/login',{method:'POST',body:{u:c.u,p:c.p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}
+      catch(e){if(e.code==='invalid_credentials'){try{await BIO.clear()}catch(_){}$('#er').textContent=LANGX==='en'?'Password changed. Sign in manually, then turn fingerprint back on.':'كلمة المرور اتغيّرت. سجّل يدويًا ثم فعّل البصمة من جديد.';bioRow()}else $('#er').textContent=errMsg(e)}};
+    $('#bio').onclick=go;go();
+  }else{
+    $('#bioon').onclick=()=>{LS.setItem('bt.bio.want','1');LS.removeItem('bt.bio.no');$('#er').textContent=LANGX==='en'?'Sign in with your password once and fingerprint turns on automatically.':'سجّل بكلمة المرور مرة واحدة وبتتفعّل البصمة تلقائيًا.';const pw=$('#p');pw&&pw.focus()};
+  }
+}
 async function bioGate(){
   if(!BIO)return;
-  let h=null;try{h=await BIO.has()}catch(_){}
-  if(!h||!h.ok)return;
-  $('#lf').insertAdjacentHTML('beforeend','<button type="button" class="btn gold" id="bio" style="width:100%;margin-top:10px">'+(LANGX==='en'?'🔓 Sign in with fingerprint':'🔓 دخول بالبصمة')+'</button><button type="button" class="btn sm ghost" id="biooff" style="width:100%;margin-top:8px">'+(LANGX==='en'?'Turn off fingerprint sign-in on this device':'إيقاف الدخول بالبصمة على هذا الجهاز')+'</button>');
-  $('#biooff').onclick=async()=>{try{await BIO.clear()}catch(_){}LS.setItem('bt.bio.no','1');toast(LANGX==='en'?'Fingerprint sign-in turned off':'تم إيقاف الدخول بالبصمة');const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()};
-  const go=async()=>{let c;try{c=await BIO.unlock({lang:LANGX})}catch(e){if(!e||e.message!=='cancelled')$('#er').textContent=LANGX==='en'?'Fingerprint unavailable. Sign in with your password.':'تعذر استخدام البصمة. سجّل بكلمة المرور.';return}
-    try{const r=await api('/api/login',{method:'POST',body:{u:c.u,p:c.p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}
-    catch(e){if(e.code==='invalid_credentials'){try{await BIO.clear()}catch(_){}$('#er').textContent=LANGX==='en'?'Password changed. Sign in manually, then re-enable fingerprint.':'كلمة المرور اتغيّرت. سجّل يدويًا ثم أعد تفعيل البصمة.';const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()}else $('#er').textContent=errMsg(e)}};
-  $('#bio').onclick=go;go();
+  let av=null;try{av=await BIO.available()}catch(_){}
+  if(!av||!av.ok)return;
+  bioRow();
+}
+async function bioSettingsCard(el){
+  if(!BIO||!el)return;
+  let av=null;try{av=await BIO.available()}catch(_){}
+  if(!av||!av.ok)return;
+  const render=async()=>{
+    let h=null;try{h=await BIO.has()}catch(_){}
+    const on=!!(h&&h.ok);
+    el.innerHTML='<div class="card" style="margin-top:14px"><b>'+(LANGX==='en'?'Fingerprint sign-in':'الدخول بالبصمة')+'</b><small style="display:block;color:#64748b;margin:4px 0 10px">'+(on?(LANGX==='en'?'On for this device. You open the app with your fingerprint.':'مفعّل على هذا الجهاز. تفتح التطبيق ببصمتك.'):(LANGX==='en'?'Off. You sign in with your username and password.':'غير مفعّل. تسجّل باسم المستخدم وكلمة المرور.'))+'</small>'
+      +(on?'<button class="btn sm ghost" id="bsetoff">'+(LANGX==='en'?'Turn off':'إيقاف')+'</button>'
+      :'<label class="f">'+(LANGX==='en'?'Password':'كلمة المرور')+'</label><input class="t" id="bsetp" type="password" autocomplete="current-password"><div class="err" id="bsete"></div><button class="btn sm gold" id="bseton">'+(LANGX==='en'?'Turn on':'تفعيل')+'</button>')+'</div>';
+    if(on){$('#bsetoff').onclick=async()=>{try{await BIO.clear()}catch(_){}LS.setItem('bt.bio.no','1');toast(LANGX==='en'?'Fingerprint sign-in turned off':'تم إيقاف الدخول بالبصمة');render()}}
+    else{$('#bseton').onclick=async()=>{const p=$('#bsetp').value;if(!p)return;try{await api('/api/login',{method:'POST',body:{u:session.u,p}});await BIO.save({u:session.u,p});LS.removeItem('bt.bio.no');LS.removeItem('bt.bio.want');toast(LANGX==='en'?'Fingerprint sign-in enabled':'تم تفعيل الدخول بالبصمة');render()}catch(e){const be=$('#bsete');be&&(be.textContent=e.code==='invalid_credentials'?(LANGX==='en'?'Wrong password':'كلمة المرور غير صحيحة'):errMsg(e))}}}
+  };
+  render();
 }
 let session=jget('bt.session',null),timers=[],watchId=null,map=null;
 const clearTimers=()=>{timers.forEach(clearInterval);timers=[];if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null}if(map){map.remove();map=null}};
@@ -182,9 +211,9 @@ function driverLive(){
   <div class="pad"><div id="perm"></div><div id="trk"></div><div id="net"></div>
    <div class="card"><div id="shift"></div></div>
    <div class="stats"><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
-   <div class="card" id="last"></div>
+   <div class="card" id="last"></div><div id="bioset"></div>
    <div class="note">${NATIVE?'يرسل التطبيق موقعك وبطارية جوالك للإدارة طوال الدوام، حتى لو كانت الشاشة مقفلة. التتبع يتوقف عند تسليم الباص.':'يرسل التطبيق موقعك وبطارية جوالك للإدارة أثناء فتحه. أبقِ التطبيق مفتوحًا وشاشة الجوال شغالة أثناء الدوام.'}</div></div>`;
-  $('#lo').onclick=()=>{if(st.shift){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}logout()};
+  $('#lo').onclick=()=>{if(st.shift){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}logout()};bioSettingsCard($('#bioset'));
   const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=()=>{if(NATIVE&&BG&&BG.openSettings&&st.perm==='denied')BG.openSettings();else startGeo()})};
   const netUi=()=>{$('#net').innerHTML=st.net?'':'<div class="banner bad">لا يوجد اتصال بالخادم. نعيد المحاولة تلقائيًا.</div>'};
   async function send(){
@@ -464,7 +493,7 @@ async function accTab(flash){
   $('#body').innerHTML=`<div class="rep">${flash?`<div class="banner ok" style="margin-bottom:14px">${esc(flash)}</div>`:''}<div class="card"><b>تغيير كلمة مروري (${esc(session.u)})</b>
    <label class="f">كلمة المرور الحالية</label><input class="t" id="pc" type="password" autocomplete="current-password">
    <label class="f">كلمة المرور الجديدة (4 أحرف على الأقل)</label><input class="t" id="pn" type="password" autocomplete="new-password">
-   <div class="err" id="pe"></div><button class="btn gold" id="ps">حفظ</button></div>
+   <div class="err" id="pe"></div><button class="btn gold" id="ps">حفظ</button></div><div id="bioset"></div>
    ${session.sub?'':`<div class="card" style="margin-top:14px"><b>المستخدمون الإداريون</b><small style="display:block;color:#64748b;margin:4px 0 10px">أنشئ حسابات إدارة إضافية واختر صلاحية كل حساب.</small>
    <table><thead><tr><th>المستخدم</th><th>الصلاحية</th><th>الحالة</th><th></th></tr></thead><tbody>${(adms||[]).map(a=>`<tr><td><b>${esc(a.name)}</b><br><small style="color:#64748b">${esc(a.u)}</small></td><td>${a.sub?(LVL[a.sub]||esc(a.sub)):'مدير كامل'}</td><td>${a.active?'مفعّل':'موقوف'}</td>
     <td>${a.u==='admin'?'':`<button class="btn sm ghost" data-alvl="${esc(a.u)}|${a.sub==='viewer'?'manager':'viewer'}">${a.sub==='viewer'?'إلى مدير تشغيل':'إلى عرض فقط'}</button> <button class="btn sm ghost" data-apw="${esc(a.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-aact="${esc(a.u)}|${a.active?0:1}">${a.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-adel="${esc(a.u)}|${esc(a.name)}">حذف</button>`}</td></tr>`).join('')}</tbody></table>
@@ -474,6 +503,7 @@ async function accTab(flash){
    <label class="f">كلمة المرور (4 أحرف على الأقل)</label><input class="t" id="aw" type="text" autocomplete="off">
    <label class="f">الصلاحية</label><select class="t" id="al"><option value="manager">مدير تشغيل — يدير السائقين والإعدادات</option><option value="viewer">مدير عام — عرض فقط بدون أي تغيير</option></select>
    <div class="err" id="ae"></div><button class="btn gold" id="aa">إضافة</button></div>`}</div>`;
+  bioSettingsCard($('#bioset'));
   $('#ps').onclick=async()=>{try{await api('/api/me/password',{method:'POST',body:{current:$('#pc').value,password:$('#pn').value}});$('#pc').value=$('#pn').value='';$('#pe').textContent='';toast('تم تغيير كلمة المرور')}catch(e){$('#pe').textContent=e.code==='wrong_password'||e.message==='wrong_password'?'كلمة المرور الحالية غير صحيحة':e.code==='password_too_short'||e.message==='password_too_short'?'كلمة المرور الجديدة 4 أحرف على الأقل':errMsg(e)}};
   if($('#aa'))$('#aa').onclick=async()=>{const u=unorm($('#au').value);if(!/^[a-z0-9._-]+$/.test(u)){$('#ae').textContent='اسم المستخدم للدخول: حروف إنجليزية صغيرة وأرقام فقط (a-z 0-9 . _ -) بدون مسافات';return}if(String($('#aw').value).trim().length<4){$('#ae').textContent='كلمة المرور 4 أحرف على الأقل';return}try{await api('/api/admins',{method:'POST',body:{name:$('#an').value,u,password:$('#aw').value,level:$('#al').value}});accTab('تمت إضافة المستخدم ✓ اسم المستخدم للدخول: '+u)}catch(e){$('#ae').textContent=e.code==='exists'||e.message==='exists'?'اسم المستخدم مستخدم':e.code==='bad_request'||e.message==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 4 أحرف أو أكثر':errMsg(e)}};
   document.querySelectorAll('[data-apw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.apw+' (4 أحرف على الأقل)');if(!p)return;try{await api('/api/admins/'+b.dataset.apw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
