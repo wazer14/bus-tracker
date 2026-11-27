@@ -214,9 +214,9 @@ function driverLive(){
   window.__natStop=()=>{try{if(nat.id!=null)BG.removeWatcher({id:nat.id});nat.id=null}catch(_){}};
   const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#64748b;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
   const apply=m=>{const wasLoaded=st.loaded;st.shift=m.shift;st.loaded=true;st.tasks=m.tasks||[];if(NATIVE)startNative();else if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;$('#last').innerHTML=lastHtml();renderShift();renderTasks();
-    if(wasLoaded){const seen=jget('bt.task.seen.'+session.u,[]);const fresh=st.tasks.filter(t=>!t.start_ts&&!seen.includes(t.id));
-      if(fresh.length){jset('bt.task.seen.'+session.u,[...seen,...fresh.map(t=>t.id)].slice(-50));try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(_){}toast('عندك مشوار جديد: '+fresh[0].place);
-        if('Notification' in window&&Notification.permission==='granted'){try{new Notification('مشوار جديد',{body:fresh[0].place+(fresh[0].note?' — '+fresh[0].note:''),dir:'rtl',lang:'ar'})}catch(_){}}}}};
+    {const seen=jget('bt.task.seen.'+session.u,[]);const fresh=st.tasks.filter(t=>!t.start_ts&&!seen.includes(t.id));
+      if(fresh.length){jset('bt.task.seen.'+session.u,[...seen,...fresh.map(t=>t.id)].slice(-50));if(wasLoaded){try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(_){}toast('عندك مشوار جديد: '+fresh[0].place);
+        if('Notification' in window&&Notification.permission==='granted'){try{new Notification('مشوار جديد',{body:fresh[0].place+(fresh[0].note?' — '+fresh[0].note:''),dir:'rtl',lang:'ar'})}catch(_){}}}}}};
   const C=2*Math.PI*104;
   function renderShift(){
     const sh=st.shift;
@@ -258,7 +258,7 @@ function driverLive(){
   load();
   timers.push(setInterval(()=>{const tk=$('#tk-tm');if(tk)tk.textContent=hms(Date.now()+skew-+tk.dataset.s);if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
   timers.push(setInterval(()=>{if(NATIVE)flush(false);else if(st.pos&&Date.now()-st.sent>12000)send()},4000));
-  timers.push(setInterval(async()=>{try{const m=await api('/api/me');const had=!!st.shift;st.shift=m.shift;st.net=true;if(had!==!!m.shift)apply(m)}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
+  timers.push(setInterval(async()=>{try{const m=await api('/api/me');const had=!!st.shift;const tk=m.tasks||[];const tChanged=tk.length!==(st.tasks||[]).length||tk.some(t=>{const o=(st.tasks||[]).find(x=>x.id===t.id);return!o||o.start_ts!==t.start_ts||o.end_ts!==t.end_ts});st.shift=m.shift;st.net=true;if(had!==!!m.shift||tChanged)apply(m)}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
   document.onvisibilitychange=()=>{if(!document.hidden){wl=null;keepAwake();if(NATIVE){checkBat();flush(true)}else send()}};
 }
 
