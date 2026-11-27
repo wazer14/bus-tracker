@@ -53,7 +53,7 @@ select.t{width:100%;padding:13px;border:1.5px solid var(--line);border-radius:12
 .admin{flex:1;display:flex;flex-direction:column}
 .mapwrap{position:relative;flex:1;min-height:calc(100vh - 118px)}
 #map{position:absolute;inset:0}
-.styles{position:absolute;z-index:500;top:10px;inset-inline-start:10px;display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,.96);padding:6px;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.22);border:1px solid var(--line)}
+.styles{position:absolute;z-index:700;top:10px;left:10px;display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,.96);padding:6px;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.22);border:1px solid var(--line)}
 .styles button{padding:5px 10px;border-radius:8px;font-size:12.5px;font-weight:700;text-align:start;color:var(--mute)}
 .styles button.on{background:var(--ink);color:#fff}
 .sheet{background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -6px 24px rgba(15,23,42,.16);z-index:600;position:absolute;left:0;right:0;bottom:0;max-height:40%;overflow:auto;padding:8px 12px 18px;border-top:3px solid var(--pri)}
