@@ -6,7 +6,7 @@ const jset=(k,v)=>LS.setItem(k,JSON.stringify(v));
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pad=n=>String(n).padStart(2,'0');
 const hms=ms=>{ms=Math.max(0,Math.floor(ms/1000));return pad(Math.floor(ms/3600))+':'+pad(Math.floor(ms%3600/60))+':'+pad(ms%60)};
-const hm=ms=>Math.round(ms/60000)+' د';
+const hm=ms=>{const m=Math.round(ms/60000),h=Math.floor(m/60),r=m%60;if(LANGX==='en')return h?h+'h'+(r?' '+r+'m':''):m+'m';return h?h+' س'+(r?' '+r+' د':''):m+' د'};
 const fdate=t=>new Date(t).toLocaleDateString(LANGX==='en'?'en-GB':'ar-SA-u-ca-gregory',{weekday:'short',day:'numeric',month:'short'});
 const ftime=t=>new Date(t).toLocaleTimeString(LANGX==='en'?'en-GB':'ar-SA',{hour:'2-digit',minute:'2-digit'});
 const toast=t=>{const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>e.classList.remove('on'),2600)};
@@ -314,7 +314,7 @@ function mapTab(){
   const draw=(fit)=>{
     const S=adminState();const pts=[];
     S.forEach(x=>{
-      const col=COL[x.state];const html=`<div class="mk ${x.state==='moving'?'mv':''} ${x.state==='lost'?'lost':''}" style="--c:${col}">🚌<span class="mk-l">${esc(x.d.name.split(' ')[0])}${x.state==='lost'&&x.seen?' · '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':''}</span></div>`;
+      const col=COL[x.state];const html=`<div class="mk ${x.state==='moving'?'mv':''} ${x.state==='lost'?'lost':''}" style="--c:${col}">🚌<span class="mk-l">${esc(x.d.name.split(' ')[0])}${x.state==='lost'&&x.seen?' · '+hm(Math.max(60000,Date.now()-x.seen)):''}</span></div>`;
       if(!markers[x.d.u]){const m=L.marker(x.pos,{icon:L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map);m.on('click',()=>{focus=x.d.u;map.setView(x.pos,17);sheet()});markers[x.d.u]={m,state:html}}
       else{const k=markers[x.d.u];k.m.setLatLng(x.pos);if(k.state!==html){k.m.setIcon(L.divIcon({html,className:'',iconSize:[34,34],iconAnchor:[17,17]}));k.state=html}}
       pts.push(x.pos);
@@ -326,7 +326,7 @@ function mapTab(){
     const c={lost:0,moving:0,stopped:0,offline:0,off:0};S.sort((p,q)=>(q.state==='lost')-(p.state==='lost'));S.forEach(x=>c[x.state]++);
     $('#sheet').innerHTML=`<div class="grab"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${Object.keys(c).map(k=>`<span class="pill" style="--c:${COL[k]}"><i></i>${LBL[k]} ${c[k]}</span>`).join('')}</div>`+
     (c.lost?`<div class="banner bad" style="margin:4px 0 8px;font-weight:700">⚠ ${c.lost} سائق غير متصل أثناء الدوام. آخر موقع معروف ظاهر على الخريطة.</div>`:'')+(LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${x.state==='lost'?'background:#fee2e2;border-inline-start:4px solid #dc2626':focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
-     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${(x.state==='offline'||x.state==='lost')&&x.seen?'آخر ظهور قبل '+Math.max(1,Math.round((Date.now()-x.seen)/60000))+' د':'<span class="spd"><b>'+Math.round(x.speed||0)+'</b> كم/س</span>'}</small></span>
+     <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${(x.state==='offline'||x.state==='lost')&&x.seen?'آخر ظهور قبل '+hm(Math.max(60000,Date.now()-x.seen)):'<span class="spd"><b>'+Math.round(x.speed||0)+'</b> كم/س</span>'}</small></span>
      <span style="text-align:end"><span class="pill" style="--c:${COL[x.state]}"><i></i>${LBL[x.state]}</span><br>${batHtml(x.bat)}</span></button>`).join('');
     document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,17);sheet()});
   };
@@ -348,7 +348,7 @@ async function repTab(){
   <tr style="background:#faf7f0;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}</td><td>${rows.reduce((a,r)=>a+r.otDays,0)}</td></tr></tbody></table>
   <div class="note">بيانات الأشهر السابقة تجريبية. الدوام اللي يسجله سائق على هذا الجهاز يظهر هنا أيضًا. اضغط على اسم السائق لتفاصيل الأيام.</div></div>`;
   $('#mo').onchange=e=>{if(e.target.value){month=e.target.value;repTab()}};
-  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','minutes','overtime_minutes']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),Math.round((s.end-s.start)/60000),Math.round(ot(s)/60000)])));
+  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','total','overtime']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),hm(s.end-s.start),ot(s)?hm(ot(s)):'0'])));
     const csv='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='overtime-'+month+'.csv';a.click()};
   $('#pdf').onclick=()=>{const w=window.open('','_blank');if(!w){toast('اسمح بالنوافذ المنبثقة لفتح التقرير');return}
     const E=esc,tot=k=>rows.reduce((a,r)=>a+r[k],0);
