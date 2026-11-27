@@ -31,3 +31,25 @@ for d in glob.glob(os.path.join(app, 'res', 'mipmap-*')):
     for n in ('ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png'):
         shutil.copy(icon, os.path.join(d, n))
 print('setup done')
+
+# FCM: wire the google-services Gradle plugin and copy the client config in place.
+gs_src = os.path.join(root, 'google-services.json')
+gs_dst = os.path.join(root, 'android', 'app', 'google-services.json')
+if os.path.exists(gs_src):
+    shutil.copy(gs_src, gs_dst)
+    bg = os.path.join(root, 'android', 'build.gradle')
+    s = open(bg, encoding='utf8').read()
+    if 'com.google.gms:google-services' not in s:
+        s = s.replace("classpath 'com.android.tools.build:gradle:",
+                      "classpath 'com.google.gms:google-services:4.4.2'\n        classpath 'com.android.tools.build:gradle:", 1)
+        open(bg, 'w', encoding='utf8').write(s)
+    ag = os.path.join(root, 'android', 'app', 'build.gradle')
+    s = open(ag, encoding='utf8').read()
+    if 'com.google.gms.google-services' not in s:
+        s = s.rstrip() + "\n\napply plugin: 'com.google.gms.google-services'\n"
+    if 'firebase-messaging' not in s:
+        s = s.replace('dependencies {', "dependencies {\n    implementation 'com.google.firebase:firebase-messaging:24.0.0'", 1)
+    open(ag, 'w', encoding='utf8').write(s)
+    print('fcm wired')
+else:
+    print('google-services.json missing; push notifications disabled')

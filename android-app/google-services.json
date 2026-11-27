@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "220236481144",
+    "project_id": "bus-tracker-cce9b",
+    "storage_bucket": "bus-tracker-cce9b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:220236481144:android:77c0f04e38ff954689e38d",
+        "android_client_info": {
+          "package_name": "com.wazer14.bustracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiyavECG23gQvss7eldxsB9WGa6H820G0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -22,6 +22,36 @@ const J=(d,s,h)=>new Response(JSON.stringify(d),{status:s||200,headers:{'content
 const num=(v,min,max)=>{v=Number(v);return Number.isFinite(v)&&v>=min&&v<=max?v:null};
 const str=(v,n)=>typeof v==='string'&&v.trim()&&v.length<=n?v.trim():null;
 
+// FCM push: service-account credentials live in Worker secrets (FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY).
+async function gcpToken(env){
+  const now=Math.floor(Date.now()/1000);
+  const head=b64(enc.encode(JSON.stringify({alg:'RS256',typ:'JWT'})));
+  const pay=b64(enc.encode(JSON.stringify({iss:env.FCM_CLIENT_EMAIL,scope:'https://www.googleapis.com/auth/firebase.messaging',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600})));
+  const pem=env.FCM_PRIVATE_KEY.replace(/-----[^-]+-----/g,'').replace(/\s/g,'');
+  const key=await crypto.subtle.importKey('pkcs8',unb64(pem),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
+  const sig=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,enc.encode(head+'.'+pay));
+  const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion='+head+'.'+pay+'.'+b64(sig)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.access_token)throw new Error('gcp_auth_failed');
+  return d.access_token;
+}
+async function sendPush(env,u,title,body){
+  if(!env.FCM_PRIVATE_KEY||!env.FCM_CLIENT_EMAIL||!env.FCM_PROJECT_ID)return {sent:0,skipped:'no_fcm_config'};
+  const rows=u?[await env.DB.prepare('SELECT * FROM push_tokens WHERE u=?').bind(u).first()].filter(Boolean)
+    :(await env.DB.prepare('SELECT * FROM push_tokens').all()).results;
+  if(!rows.length)return {sent:0,targets:0};
+  const at=await gcpToken(env);
+  let sent=0;const errs=[];
+  for(const r of rows){
+    const res=await fetch(`https://fcm.googleapis.com/v1/projects/${env.FCM_PROJECT_ID}/messages:send`,{method:'POST',headers:{'authorization':'Bearer '+at,'content-type':'application/json'},body:JSON.stringify({message:{token:r.token,notification:{title,body},android:{priority:'HIGH'}}})});
+    if(res.ok){sent++;continue}
+    const d=await res.json().catch(()=>({}));const code=d.error&&d.error.status||('HTTP_'+res.status);
+    errs.push({u:r.u,code});
+    if(code==='NOT_FOUND'||code==='UNREGISTERED')await env.DB.prepare('DELETE FROM push_tokens WHERE u=?').bind(r.u).run();
+  }
+  return {sent,targets:rows.length,errors:errs};
+}
+
 async function ensureAdmin(env){
   const r=await env.DB.prepare("SELECT 1 FROM users WHERE role='admin' LIMIT 1").first();
   if(r||!env.ADMIN_PASSWORD)return;
@@ -66,7 +96,8 @@ async function position(env,me,req,H){
 let tablesOk=false;
 async function ensureTables(env){if(tablesOk)return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS consents(id INTEGER PRIMARY KEY AUTOINCREMENT,u TEXT NOT NULL,version TEXT NOT NULL,ts INTEGER NOT NULL,device TEXT)').run();
-  await env.DB.prepare('CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)').run();tablesOk=true}
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)').run();
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS push_tokens(u TEXT PRIMARY KEY,token TEXT NOT NULL,platform TEXT,ts INTEGER NOT NULL)').run();tablesOk=true}
 const CONSENT_V='1';
 async function getSettings(env){await ensureTables(env);const r=await env.DB.prepare('SELECT k,v FROM settings').all();const m={};r.results.forEach(x=>m[x.k]=x.v);
   return {pingSec:Math.min(300,Math.max(5,parseInt(m.pingSec)||15)),flushSec:Math.min(120,Math.max(10,parseInt(m.flushSec)||30))}}
@@ -275,6 +306,8 @@ export default {
         await env.DB.prepare("DELETE FROM users WHERE u=? AND role='driver'").bind(u).run();return J({ok:true},200,H);
       }
       if(path==='/api/buses'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const id=str(b.id,40);if(!id)return J({error:'bad_request'},400,H);await env.DB.prepare('INSERT OR REPLACE INTO buses(id,label,active) VALUES(?,?,1)').bind(id,str(b.label,80)).run();return J({ok:true},201,H)}
+      if(path==='/api/push/register'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const token=str(b.token,400);if(!token)return J({error:'bad_request'},400,H);await ensureTables(env);await env.DB.prepare('INSERT INTO push_tokens(u,token,platform,ts) VALUES(?,?,?,?) ON CONFLICT(u) DO UPDATE SET token=excluded.token,platform=excluded.platform,ts=excluded.ts').bind(me.u,token,str(b.platform,20)||null,Date.now()).run();return J({ok:true},201,H)}
+      if(path==='/api/push/send'&&req.method==='POST'){const e=adminOnly();if(e)return e;await ensureTables(env);const b=await req.json().catch(()=>({}));const title=str(b.title,120),body=str(b.body,400);if(!title||!body)return J({error:'bad_request'},400,H);try{return J(await sendPush(env,b.u?str(b.u,60):null,title,body),200,H)}catch(err){return J({error:String(err.message||'push_failed')},502,H)}}
       return J({error:'not_found'},404,H);
     }catch(e){return J({error:'server_error'},500,H)}
   }

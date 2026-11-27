@@ -14,6 +14,18 @@ const toRad=x=>x*Math.PI/180;
 const dist=(a,b)=>{const R=6371,dl=toRad(b[0]-a[0]),dn=toRad(b[1]-a[1]);const x=Math.sin(dl/2)**2+Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x))}; // km
 const drv=u=>D.drivers.find(d=>d.u===u);
 const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+let pushReg=false;
+async function regPush(){
+  if(pushReg||!NATIVE||!LIVE)return;pushReg=true;
+  const P=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.PushNotifications;if(!P)return;
+  try{
+    P.addListener('registration',t=>{api('/api/push/register',{method:'POST',body:{token:t.value,platform:'android'}}).catch(()=>{})});
+    P.addListener('registrationError',()=>{});
+    let p=await P.checkPermissions();if(p.receive!=='granted')p=await P.requestPermissions();
+    if(p.receive==='granted')await P.register();
+  }catch(_){}
+}
+
 const APK_URL='https://github.com/wazer14/bus-tracker/releases/latest/download/bus-tracker.apk';
 const API=(window.BT_CONFIG&&window.BT_CONFIG.API_BASE||'').replace(/\/+$/,''),LIVE=!!API;
 async function api(path,opt={}){
@@ -87,7 +99,7 @@ function driverView(){
   const pushLive=()=>{if(!st.pos)return;const sh=jget('bt.shift.'+d.u,null);jset(liveKey,{lat:st.pos[0],lon:st.pos[1],speed:st.speed,bat:st.bat,ts:Date.now(),onShift:!!sh,km:st.km,trips:st.trips,bus:sh?.bus||d.bus})};
   const permUi=()=>{$('#perm').innerHTML=st.perm==='ok'?`<div class="banner ok">الموقع شغال${st.acc?` (دقة ${Math.round(st.acc)} م)`:''}</div>`:st.perm==='denied'?`<div class="banner bad">إذن الموقع مرفوض. فعّله من إعدادات المتصفح للموقع، ثم <button class="btn sm gold" id="rt">إعادة المحاولة</button></div>`:st.perm==='nosupport'?`<div class="banner bad">هذا الجهاز أو المتصفح لا يدعم تحديد الموقع.</div>`:`<div class="banner warn">بانتظار إذن الموقع. اضغط "سماح" في النافذة اللي ظهرت. <button class="btn sm gold" id="rt">طلب الإذن</button></div>`;$('#rt')&&($('#rt').onclick=startGeo)};
   function startGeo(){
-    if(NATIVE)return startNative();
+    if(NATIVE){regPush();return startNative()}
     if(!navigator.geolocation){st.perm='nosupport';permUi();return}
     if(watchId!=null)navigator.geolocation.clearWatch(watchId);
     watchId=navigator.geolocation.watchPosition(p=>{
@@ -449,7 +461,7 @@ async function driverInfo(){
   }catch(e){if(e.message==='unauth')return;$('#inf').innerHTML=`<div class="banner bad">${esc(errMsg(e))}</div>`+dl}
 }
 
-function route(){if(!session)return loginView();session.role==='admin'?adminView():(LIVE?(NATIVE?driverNative():driverInfo()):driverView())}
+function route(){if(!session)return loginView();if(session.role==='driver'&&LIVE&&NATIVE)regPush();session.role==='admin'?adminView():(LIVE?(NATIVE?driverNative():driverInfo()):driverView())}
 initFleet();route();
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
