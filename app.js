@@ -26,7 +26,7 @@ const ERR={invalid_credentials:'اسم المستخدم أو كلمة المرو
 const errMsg=e=>ERR[e.code]||(e.status?'تعذر تنفيذ الطلب':'لا يوجد اتصال بالخادم');
 let session=jget('bt.session',null),timers=[],watchId=null,map=null;
 const clearTimers=()=>{timers.forEach(clearInterval);timers=[];if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null}if(map){map.remove();map=null}};
-const ICON='<svg class="logo" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#16315a"/><rect x="38" y="48" width="116" height="86" rx="16" fill="#d9bf86"/><rect x="52" y="63" width="88" height="32" fill="#0c1f3a"/><circle cx="66" cy="126" r="13" fill="#0c1f3a" stroke="#d9bf86" stroke-width="4"/><circle cx="126" cy="126" r="13" fill="#0c1f3a" stroke="#d9bf86" stroke-width="4"/></svg>';
+const ICON='<svg class="logo" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#0f172a"/><rect x="38" y="48" width="116" height="86" rx="16" fill="#6366f1"/><rect x="52" y="63" width="88" height="32" rx="6" fill="#a5f3fc"/><circle cx="66" cy="126" r="13" fill="#0f172a" stroke="#22d3ee" stroke-width="5"/><circle cx="126" cy="126" r="13" fill="#0f172a" stroke="#22d3ee" stroke-width="5"/></svg>';
 
 /* ---------- shifts / history ---------- */
 const rnd=(seed=>()=>(seed=(seed*1664525+1013904223)%4294967296)/4294967296);
@@ -121,7 +121,7 @@ function driverView(){
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/><circle class="fg ${over?'ot':''}" cx="120" cy="120" r="104" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-frac)}"/></svg>
       <div class="ring-in"><div class="tm" id="tm">${hms(e)}</div><small>${over?'وقت إضافي':'من 8 ساعات'}</small></div></div>
       <div class="ot-box" id="otb">${over?'وقت إضافي: '+hms(over):''}</div>
-      <p style="text-align:center;color:#667085;margin:6px 0 0;font-size:14px">الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start)}</p>
+      <p style="text-align:center;color:#64748b;margin:6px 0 0;font-size:14px">الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start)}</p>
       <button class="btn red" id="out">تسليم الباص</button>
       <button class="btn sm ghost" id="sim" style="margin:12px auto 0;display:block">تجربة: تقديم الوقت 7 ساعات (عرض فقط)</button>`;
       $('#out').onclick=()=>{if(!confirm('تأكيد تسليم الباص وإنهاء الدوام؟'))return;const end=Date.now(),s={u:d.u,bus:sh.bus,start:sh.start,end,km:+(sh.km||0).toFixed(1),trips:sh.trips||0};const a=jget('bt.shifts',[]);a.push(s);jset('bt.shifts',a);LS.removeItem('bt.shift.'+d.u);wl?.release?.();st.km=0;st.trips=0;pushLive();
@@ -129,7 +129,7 @@ function driverView(){
       $('#sim').onclick=()=>{sh.start-=7*3600e3;jset('bt.shift.'+d.u,sh);renderShift()};
     }
   };
-  const lastHtml=()=>{const l=jget('bt.shifts',[]).filter(s=>s.u===d.u).slice(-3).reverse();return `<b>آخر دوام مسجل</b>`+(l.length?l.map(s=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(s.start)} · ${esc(s.bus)}</span><span>${hm(s.end-s.start)} ${ot(s)?`<b style="color:#dc2626">(+${hm(ot(s))})</b>`:''}</span></div>`).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>')};
+  const lastHtml=()=>{const l=jget('bt.shifts',[]).filter(s=>s.u===d.u).slice(-3).reverse();return `<b>آخر دوام مسجل</b>`+(l.length?l.map(s=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:14px"><span>${fdate(s.start)} · ${esc(s.bus)}</span><span>${hm(s.end-s.start)} ${ot(s)?`<b style="color:#dc2626">(+${hm(ot(s))})</b>`:''}</span></div>`).join(''):'<p style="color:#64748b;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>')};
   $('#last').innerHTML=lastHtml();
   renderShift();keepAwake();
   timers.push(setInterval(()=>{const sh=jget('bt.shift.'+d.u,null);if(!sh)return;const e=Date.now()-sh.start;$('#tm').textContent=hms(e);const over=Math.max(0,e-H8);$('#otb').textContent=over?'وقت إضافي: '+hms(over):'';if(over&&!$('.ring .fg.ot'))renderShift()},1000));
@@ -211,12 +211,12 @@ function driverLive(){
     nat.starting=false;trkUi();checkBat();
   }
   window.__natStop=()=>{try{if(nat.id!=null)BG.removeWatcher({id:nat.id});nat.id=null}catch(_){}};
-  const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
+  const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#64748b;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
   const apply=m=>{st.shift=m.shift;st.loaded=true;if(NATIVE)startNative();else if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;$('#last').innerHTML=lastHtml();renderShift()};
   const C=2*Math.PI*104;
   function renderShift(){
     const sh=st.shift;
-    if(!sh&&!st.loaded){$('#shift').innerHTML='<p style="text-align:center;color:#667085;padding:30px 0">جارٍ التحميل...</p>';return}
+    if(!sh&&!st.loaded){$('#shift').innerHTML='<p style="text-align:center;color:#64748b;padding:30px 0">جارٍ التحميل...</p>';return}
     if(!sh){
       const opts=st.buses.length?st.buses.map(b=>b.id):[session.bus].filter(Boolean);
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/></svg><div class="ring-in"><div class="tm">00:00:00</div><small>الدوام 8 ساعات</small></div></div>
@@ -228,7 +228,7 @@ function driverLive(){
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/><circle class="fg ${over?'ot':''}" cx="120" cy="120" r="104" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-frac)}"/></svg>
       <div class="ring-in"><div class="tm" id="tm">${hms(e)}</div><small>${over?'وقت إضافي':'من 8 ساعات'}</small></div></div>
       <div class="ot-box" id="otb">${over?'وقت إضافي: '+hms(over):''}</div>
-      <p style="text-align:center;color:#667085;margin:6px 0 0;font-size:14px">الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start_ts)}</p>
+      <p style="text-align:center;color:#64748b;margin:6px 0 0;font-size:14px">الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start_ts)}</p>
       <button class="btn red" id="out">تسليم الباص</button>`;
       $('#out').onclick=async()=>{if(!confirm('تأكيد تسليم الباص وإنهاء الدوام؟'))return;try{await send();const m=await api('/api/shift/end',{method:'POST'});wl?.release?.();apply(m);toast(m.ended.overtimeMs?'تم التسليم. وقت إضافي '+hm(m.ended.overtimeMs):'تم التسليم. شكرًا لك')}catch(e){if(e.message!=='unauth')toast(errMsg(e))}};
     }
@@ -325,7 +325,7 @@ function mapTab(){
   const sheet=(S=adminState())=>{
     const c={lost:0,moving:0,stopped:0,offline:0,off:0};S.sort((p,q)=>(q.state==='lost')-(p.state==='lost'));S.forEach(x=>c[x.state]++);
     $('#sheet').innerHTML=`<div class="grab"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${Object.keys(c).map(k=>`<span class="pill" style="--c:${COL[k]}"><i></i>${LBL[k]} ${c[k]}</span>`).join('')}</div>`+
-    (c.lost?`<div class="banner bad" style="margin:4px 0 8px;font-weight:700">⚠ ${c.lost} سائق غير متصل أثناء الدوام. آخر موقع معروف ظاهر على الخريطة.</div>`:'')+(LIVE&&!S.length?'<p style="text-align:center;color:#667085">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${x.state==='lost'?'background:#fee2e2;border-inline-start:4px solid #dc2626':focus===x.d.u?'background:#faf7f0':''}"><span class="av">${esc(x.d.name[0])}</span>
+    (c.lost?`<div class="banner bad" style="margin:4px 0 8px;font-weight:700">⚠ ${c.lost} سائق غير متصل أثناء الدوام. آخر موقع معروف ظاهر على الخريطة.</div>`:'')+(LIVE&&!S.length?'<p style="text-align:center;color:#64748b">لا يوجد سائقون على الخريطة بعد. يظهرون عند فتح التطبيق وإرسال الموقع.</p>':'')+S.map(x=>`<button class="drow" data-u="${x.d.u}" style="${x.state==='lost'?'background:#fee2e2;border-inline-start:4px solid #dc2626':focus===x.d.u?'background:#f1f5f9':''}"><span class="av">${esc(x.d.name[0])}</span>
      <span><b>${esc(x.d.name)} ${x.real?'<span class="pill" style="--c:#2563eb"><i></i>موقع حقيقي</span>':''}</b><small>${esc(x.bus)} · ${x.onShift===false?'خارج الدوام · ':''}${(x.state==='offline'||x.state==='lost')&&x.seen?'آخر ظهور قبل '+hm(Math.max(60000,Date.now()-x.seen)):'<span class="spd"><b>'+Math.round(x.speed||0)+'</b> كم/س</span>'}</small></span>
      <span style="text-align:end"><span class="pill" style="--c:${COL[x.state]}"><i></i>${LBL[x.state]}</span><br>${batHtml(x.bat)}</span></button>`).join('');
     document.querySelectorAll('.drow').forEach(b=>b.onclick=()=>{focus=b.dataset.u;const x=adminState().find(y=>y.d.u===focus);map.setView(x.pos,17);sheet()});
@@ -342,10 +342,10 @@ async function repTab(){
   let rows;
   if(LIVE){try{const r=await api('/api/report?month='+month);rows=r.drivers.map(d=>({d:{u:d.u,name:d.name},l:d.shifts.map(x=>({u:d.u,bus:x.bus,start:x.start,end:x.end})),days:d.days,tot:d.totalMs,ot:d.overtimeMs,otDays:d.overtimeDays}))}catch(e){if(e.message==='unauth')return;$('#body').innerHTML='<div class="rep"><div class="banner bad">تعذر تحميل التقرير. '+esc(errMsg(e))+'</div></div>';return}}
   else rows=monthRows(month);
-  $('#body').innerHTML=`<div class="rep"><div class="bar"><input type="month" id="mo" value="${month}"><button class="btn sm ghost" id="csv">تصدير CSV</button> <button class="btn sm ghost" id="pdf">تقرير PDF</button><span style="color:#667085;font-size:13px">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه</span></div>
+  $('#body').innerHTML=`<div class="rep"><div class="bar"><input type="month" id="mo" value="${month}"><button class="btn sm ghost" id="csv">تصدير CSV</button> <button class="btn sm ghost" id="pdf">تقرير PDF</button><span style="color:#64748b;font-size:13px">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه</span></div>
   <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الساعات</th><th>ساعات إضافية</th><th>أيام فيها إضافي</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr class="clk" data-u="${r.d.u}"><td><b>${esc(r.d.name)}</b><br><small style="color:#667085">${esc(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('')}
-  <tr style="background:#faf7f0;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}</td><td>${rows.reduce((a,r)=>a+r.otDays,0)}</td></tr></tbody></table>
+  ${rows.map(r=>`<tr class="clk" data-u="${r.d.u}"><td><b>${esc(r.d.name)}</b><br><small style="color:#64748b">${esc(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('')}
+  <tr style="background:#f1f5f9;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}</td><td>${rows.reduce((a,r)=>a+r.otDays,0)}</td></tr></tbody></table>
   <div class="note">بيانات الأشهر السابقة تجريبية. الدوام اللي يسجله سائق على هذا الجهاز يظهر هنا أيضًا. اضغط على اسم السائق لتفاصيل الأيام.</div></div>`;
   $('#mo').onchange=e=>{if(e.target.value){month=e.target.value;repTab()}};
   $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','total','overtime']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),hm(s.end-s.start),ot(s)?hm(ot(s)):'0'])));
@@ -355,12 +355,12 @@ async function repTab(){
     const sum=rows.map(r=>`<tr><td>${E(r.d.name)}<br><small>${E(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('');
     const det=rows.filter(r=>r.l.length).map(r=>`<h3>${E(r.d.name)}</h3><table><thead><tr><th>التاريخ</th><th>الباص</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${E(s.bus||'-')}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`).join('');
     w.document.write(TR(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الوقت الإضافي ${month}</title><style>
-    body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#0c1f3a}h1{font-size:20px;margin:0 0 4px}h3{margin:20px 0 6px;font-size:15px}.s{color:#667085;font-size:12px;margin-bottom:12px}
-    table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}th,td{border:1px solid #ccd;padding:6px 8px;text-align:right}th{background:#f1ede2}small{color:#667085}.ov{color:#b42318;font-weight:700}tr{page-break-inside:avoid}
+    body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#0f172a}h1{font-size:20px;margin:0 0 4px}h3{margin:20px 0 6px;font-size:15px}.s{color:#64748b;font-size:12px;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:right}th{background:#e2e8f0}small{color:#64748b}.ov{color:#b42318;font-weight:700}tr{page-break-inside:avoid}
     .pb{margin-bottom:14px}@media print{.pb{display:none}}button{padding:8px 16px;font:inherit}</style></head><body>
     <div class="pb"><button onclick="window.print()">طباعة / حفظ كـ PDF</button></div>
     <h1>تقرير الوقت الإضافي · ${month}</h1><div class="s">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه · أُنشئ ${new Date().toLocaleString(LANGX==='en'?'en-GB':'ar-SA')}</div>
-    <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>أيام فيها إضافي</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#faf7f0"><td>الإجمالي</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${tot('otDays')}</td></tr></tbody></table>${det}
+    <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>أيام فيها إضافي</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#f1f5f9"><td>الإجمالي</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${tot('otDays')}</td></tr></tbody></table>${det}
     <script>setTimeout(function(){window.print()},500)<\/script></body></html>`).replace(/lang="ar" dir="rtl"/,LANGX==='en'?'lang="en" dir="ltr"':'lang="ar" dir="rtl"'));w.document.close()};
   document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>{const r=rows.find(x=>x.d.u===t.dataset.u);
     $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
@@ -374,7 +374,7 @@ async function accTab(){
    <label class="f">كلمة المرور الحالية</label><input class="t" id="pc" type="password" autocomplete="current-password">
    <label class="f">كلمة المرور الجديدة (8 أحرف على الأقل)</label><input class="t" id="pn" type="password" autocomplete="new-password">
    <div class="err" id="pe"></div><button class="btn gold" id="ps">حفظ</button></div>
-   ${session.sub?'':`<div class="card" style="margin-top:14px"><b>مدير التشغيل</b><small style="display:block;color:#667085;margin:4px 0">نفس صلاحيات الأدمن، بحساب منفصل. ${mg?'الحساب الحالي: '+esc(mg.u)+(mg.active?'':' (موقوف)'):'لم يتم إنشاؤه بعد.'}</small>
+   ${session.sub?'':`<div class="card" style="margin-top:14px"><b>مدير التشغيل</b><small style="display:block;color:#64748b;margin:4px 0">نفس صلاحيات الأدمن، بحساب منفصل. ${mg?'الحساب الحالي: '+esc(mg.u)+(mg.active?'':' (موقوف)'):'لم يتم إنشاؤه بعد.'}</small>
    <label class="f">اسم المستخدم (إنجليزي)</label><input class="t" id="mu" autocapitalize="off" value="${esc(mg?.u||'')}">
    <label class="f">الاسم</label><input class="t" id="mn" style="direction:rtl" value="${esc(mg?.name||'مدير التشغيل')}">
    <label class="f">كلمة المرور ${mg?'(اتركها فارغة بدون تغيير)':'(8 أحرف على الأقل)'}</label><input class="t" id="mw" type="text" autocomplete="off">
@@ -397,7 +397,7 @@ async function drvTab(){
    <label class="f">كلمة المرور (8 أحرف على الأقل)</label><input class="t" id="dw" type="text" autocomplete="off">
    <div class="err" id="de"></div><button class="btn gold" id="da">إضافة</button></div>
    <h3 style="margin:18px 0 8px">السائقون (${list.length})</h3>
-   <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th><th></th></tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#667085">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}<br><small style="color:${cons[d.u]?'#16a34a':'#d97706'}">${cons[d.u]?'وافق على التتبع '+fdate(cons[d.u].ts):'لم يوافق على التتبع بعد'}</small></td>
+   <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th><th></th></tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#64748b">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}<br><small style="color:${cons[d.u]?'#16a34a':'#d97706'}">${cons[d.u]?'وافق على التتبع '+fdate(cons[d.u].ts):'لم يوافق على التتبع بعد'}</small></td>
     <td><button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td></tr>`).join('')}</tbody></table></div>`;
   $('#da').onclick=async()=>{try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u:$('#du').value,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value}});
       const b=$('#db').value.trim();if(b)await api('/api/buses',{method:'POST',body:{id:b}}).catch(()=>{});toast('تمت إضافة السائق');drvTab()}catch(e){$('#de').textContent=e.code==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 8 أحرف أو أكثر':errMsg(e)}};
@@ -428,15 +428,15 @@ async function consentGate(){
   return await consentModal()}
 async function driverInfo(){
   clearTimers();
-  $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div><div class="pad" id="inf"><p style="text-align:center;color:#667085;padding:30px 0">جارٍ التحميل...</p></div>`;
+  $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div><div class="pad" id="inf"><p style="text-align:center;color:#64748b;padding:30px 0">جارٍ التحميل...</p></div>`;
   $('#lo').onclick=()=>{LS.removeItem('bt.session');session=null;route()};
-  const dl=`<div class="card" style="text-align:center"><b>تطبيق السائق</b><p style="color:#667085;font-size:14px;margin:6px 0 12px">استلام وتسليم الباص وتتبع الموقع يتم من تطبيق أندرويد فقط. حمّله وثبّته، ثم سجّل دخولك بنفس الحساب.</p><a class="dl" href="${APK_URL}">📲 تحميل التطبيق (أندرويد)</a><p style="color:#667085;font-size:12.5px;margin:10px 0 0">بعد التحميل افتح الملف واسمح بالتثبيت من هذا المصدر إذا طُلب منك.</p></div>`;
+  const dl=`<div class="card" style="text-align:center"><b>تطبيق السائق</b><p style="color:#64748b;font-size:14px;margin:6px 0 12px">استلام وتسليم الباص وتتبع الموقع يتم من تطبيق أندرويد فقط. حمّله وثبّته، ثم سجّل دخولك بنفس الحساب.</p><a class="dl" href="${APK_URL}">📲 تحميل التطبيق (أندرويد)</a><p style="color:#64748b;font-size:12.5px;margin:10px 0 0">بعد التحميل افتح الملف واسمح بالتثبيت من هذا المصدر إذا طُلب منك.</p></div>`;
   try{
     const m=await api('/api/me'),u=m.user||{},sh=m.shift;
-    const row=x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e6e0d2;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`;
+    const row=x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`;
     $('#inf').innerHTML=`<div class="card"><b>بياناتي</b><p style="margin:8px 0 0;font-size:14px;line-height:1.9">الاسم: ${esc(u.name||'')}<br>اسم المستخدم: ${esc(u.u||'')}<br>الجوال: ${esc(u.phone||'-')}<br>الباص الافتراضي: ${esc(u.bus||'-')}</p></div>
-    <div class="card"><b>الدوام الحالي</b><p style="margin:8px 0 0;font-size:14px">${sh?`دوام مفتوح على الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start_ts)}<br><small style="color:#667085">للتسليم افتح التطبيق.</small>`:'لا يوجد دوام مفتوح.'}</p></div>
-    <div class="card"><b>آخر الدوامات والوقت الإضافي</b>${(m.last||[]).length?(m.last||[]).map(row).join(''):'<p style="color:#667085;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>'}</div>`+dl;
+    <div class="card"><b>الدوام الحالي</b><p style="margin:8px 0 0;font-size:14px">${sh?`دوام مفتوح على الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start_ts)}<br><small style="color:#64748b">للتسليم افتح التطبيق.</small>`:'لا يوجد دوام مفتوح.'}</p></div>
+    <div class="card"><b>آخر الدوامات والوقت الإضافي</b>${(m.last||[]).length?(m.last||[]).map(row).join(''):'<p style="color:#64748b;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>'}</div>`+dl;
   }catch(e){if(e.message==='unauth')return;$('#inf').innerHTML=`<div class="banner bad">${esc(errMsg(e))}</div>`+dl}
 }
 
