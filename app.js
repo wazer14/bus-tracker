@@ -36,6 +36,24 @@ async function api(path,opt={}){
 }
 const ERR={invalid_credentials:'اسم المستخدم أو كلمة المرور غير صحيحة',too_many_attempts:'محاولات كثيرة. حاول بعد 15 دقيقة',bus_in_use:'هذا الباص مستخدم عند سائق آخر',shift_already_open:'عندك دوام مفتوح',no_open_shift:'الدوام مقفل مسبقًا',username_taken:'اسم المستخدم مستخدم',bad_request:'بيانات غير صحيحة'};
 const errMsg=e=>ERR[e.code]||(e.status?'تعذر تنفيذ الطلب':'لا يوجد اتصال بالخادم');
+const BIO=NATIVE&&window.Capacitor.Plugins&&window.Capacitor.Plugins.BioAuth||null;
+const unorm=v=>String(v||'').normalize('NFKC').replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[۰-۹]/g,c=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(c)).trim().toLowerCase();
+async function bioOffer(u,p){
+  if(!BIO||LS.getItem('bt.bio.no')==='1')return;
+  try{const h=await BIO.has();if(h&&h.ok)return;const av=await BIO.available();if(!av||!av.ok)return;
+    if(!confirm('تفعيل الدخول بالبصمة على هذا الجهاز؟\nبتفتح التطبيق بعدها ببصمتك بدون كتابة اسم المستخدم وكلمة المرور.')){LS.setItem('bt.bio.no','1');return}
+    await BIO.save({u,p});toast('تم تفعيل الدخول بالبصمة')}catch(_){}}
+async function bioGate(){
+  if(!BIO)return;
+  let h=null;try{h=await BIO.has()}catch(_){}
+  if(!h||!h.ok)return;
+  $('#lf').insertAdjacentHTML('beforeend','<button type="button" class="btn gold" id="bio" style="width:100%;margin-top:10px">🔓 دخول بالبصمة</button><button type="button" class="btn sm ghost" id="biooff" style="width:100%;margin-top:8px">إيقاف الدخول بالبصمة على هذا الجهاز</button>');
+  $('#biooff').onclick=async()=>{try{await BIO.clear()}catch(_){}LS.setItem('bt.bio.no','1');toast('تم إيقاف الدخول بالبصمة');const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()};
+  const go=async()=>{let c;try{c=await BIO.unlock()}catch(e){if(!e||e.message!=='cancelled')$('#er').textContent='تعذر استخدام البصمة. سجّل بكلمة المرور.';return}
+    try{const r=await api('/api/login',{method:'POST',body:{u:c.u,p:c.p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}
+    catch(e){if(e.code==='invalid_credentials'){try{await BIO.clear()}catch(_){}$('#er').textContent='كلمة المرور اتغيّرت. سجّل يدويًا ثم أعد تفعيل البصمة.';const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()}else $('#er').textContent=errMsg(e)}};
+  $('#bio').onclick=go;go();
+}
 let session=jget('bt.session',null),timers=[],watchId=null,map=null;
 const clearTimers=()=>{timers.forEach(clearInterval);timers=[];if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null}if(map){map.remove();map=null}};
 const ICON='<svg class="logo" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#0f172a"/><rect x="38" y="48" width="116" height="86" rx="16" fill="#6366f1"/><rect x="52" y="63" width="88" height="32" rx="6" fill="#a5f3fc"/><circle cx="66" cy="126" r="13" fill="#0f172a" stroke="#22d3ee" stroke-width="5"/><circle cx="126" cy="126" r="13" fill="#0f172a" stroke="#22d3ee" stroke-width="5"/></svg>';
@@ -65,7 +83,7 @@ const ot=s=>Math.max(0,(s.end-s.start)-H8);
 function loginView(msg=''){
   clearTimers();
   $('#app').innerHTML=`<div class="login">${ICON}<h1>BusPulse</h1>
-  <form class="card" id="lf"><label class="f">اسم المستخدم</label><input class="t" id="u" autocomplete="username" autocapitalize="off" required>
+  <form class="card" id="lf"><label class="f">اسم المستخدم</label><input class="t" id="u" dir="ltr" style="text-align:left" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
   <label class="f">كلمة المرور</label><input class="t" id="p" type="password" autocomplete="current-password" required>
   <div class="err" id="er">${esc(msg)}</div><button class="btn gold" type="submit">دخول</button>
   <div class="demo-box"><b>نسخة تجريبية.</b> حسابات تجريبية فقط:<br>
@@ -75,10 +93,11 @@ function loginView(msg=''){
   document.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>{const[a,c]=b.dataset.fill.split('|');$('#u').value=a;$('#p').value=c});
   if(LIVE){$('.demo-box').innerHTML='النظام متصل بالخادم. استخدم اسم المستخدم وكلمة المرور اللي أعطاك إياها المدير.';if(!NATIVE)$('.login').insertAdjacentHTML('beforeend',`<a class="dl" href="${APK_URL}">📲 تحميل التطبيق (أندرويد)</a>`)}
   $('#lf').onsubmit=async e=>{e.preventDefault();const u=$('#u').value.trim().toLowerCase(),p=$('#p').value;
-    if(LIVE){try{const r=await api('/api/login',{method:'POST',body:{u,p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}catch(e){$('#er').textContent=errMsg(e)}return}
+    if(LIVE){try{const r=await api('/api/login',{method:'POST',body:{u,p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);await bioOffer(r.user.u,p);route()}catch(e){$('#er').textContent=errMsg(e)}return}
     if(u===D.admin.u&&p===D.admin.p)session={u,role:'admin'};
     else{const d=drv(u);if(d&&d.p===p)session={u,role:'driver'};else{$('#er').textContent='اسم المستخدم أو كلمة المرور غير صحيحة';return}}
     jset('bt.session',session);route();};
+  if(LIVE&&NATIVE)bioGate();
 }
 const logout=()=>{if(session?.role==='driver'&&(jget('bt.shift.'+session.u,null)||session.open)){alert('عندك دوام شغال. سلّم الباص أولًا ثم اخرج.');return}try{window.__natStop&&window.__natStop()}catch(_){}LS.removeItem('bt.session');session=null;route()};
 
@@ -376,69 +395,127 @@ async function repTab(){
     <script>setTimeout(function(){window.print()},500)<\/script></body></html>`).replace(/lang="ar" dir="rtl"/,LANGX==='en'?'lang="en" dir="ltr"':'lang="ar" dir="rtl"'));w.document.close()};
   document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>{const r=rows.find(x=>x.d.u===t.dataset.u);
     const canReview=session.sub!=='viewer';
-    $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>s.pend?`<tr style="background:#fffbeb"><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td style="color:#b45309"><small>أُغلق تلقائيًا (نسي التسليم) · تقديري ${hm(ot(s))}</small>${canReview?` <button class="btn sm gold" data-rev="${s.id}">تأكيد</button>`:''}</td></tr>`:`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
+    $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th>${LIVE?'<th></th>':''}</tr></thead><tbody>${r.l.map(s=>s.pend?`<tr style="background:#fffbeb"><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td style="color:#b45309"><small>أُغلق تلقائيًا (نسي التسليم) · تقديري ${hm(ot(s))}</small>${canReview?` <button class="btn sm gold" data-rev="${s.id}">تأكيد</button>`:''}</td>${LIVE?`<td><button class="btn sm ghost" data-track="${s.id}">🗺</button></td>`:''}</tr>`:`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td>${LIVE?`<td><button class="btn sm ghost" data-track="${s.id}">🗺</button></td>`:''}</tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
     $('#drin').querySelectorAll('[data-rev]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api('/api/shifts/review',{method:'POST',body:{id:+b.dataset.rev}});toast('تم التأكيد');$('#dr').classList.remove('on');repTab()}catch(e){b.disabled=false;toast(errMsg(e))}});
+    $('#drin').querySelectorAll('[data-track]').forEach(b=>b.onclick=()=>replayView(+b.dataset.track));
     $('#dr').classList.add('on')});
 }
 
+/* ---------- route replay ---------- */
+const TR_=(ar,en)=>LANGX==='en'?en:ar;
+async function shiftsDrawer(u,name){
+  let r;try{r=await api('/api/shifts?u='+encodeURIComponent(u))}catch(e){toast(errMsg(e));return}
+  $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${TR_('مسارات','Routes')} · ${esc(name)}</h3>`+(r.shifts.length?`<table><thead><tr><th>${TR_('التاريخ','Date')}</th><th>${TR_('الباص','Bus')}</th><th>${TR_('من','From')}</th><th>${TR_('إلى','To')}</th><th></th></tr></thead><tbody>${r.shifts.map(s=>`<tr><td>${fdate(s.start_ts)}</td><td>${esc(s.bus||'-')}</td><td>${ftime(s.start_ts)}</td><td>${ftime(s.end_ts)}</td><td><button class="btn sm gold" data-track="${s.id}">${TR_('عرض المسار','View route')}</button></td></tr>`).join('')}</tbody></table>`:`<p>${TR_('لا توجد دوامات مسجلة بعد.','No shifts recorded yet.')}</p>`)+`<div style="margin-top:12px"><button class="btn ghost" onclick="document.getElementById('dr').classList.remove('on')">${TR_('إغلاق','Close')}</button></div>`;
+  $('#drin').querySelectorAll('[data-track]').forEach(b=>b.onclick=()=>replayView(+b.dataset.track));
+  $('#dr').classList.add('on');
+}
+async function replayView(id){
+  let data;try{data=await api('/api/track?shift='+id)}catch(e){toast(errMsg(e));return}
+  const pts=(data.points||[]).map(p=>({t:p[0],lat:p[1],lon:p[2],sp:p[3]||0}));
+  if(pts.length<2){toast(TR_('لا توجد نقاط مسار محفوظة لهذا الدوام بعد — يبدأ الحفظ من اليوم','No route points stored for this shift yet — recording starts from now on'));return}
+  const sh=data.shift;
+  const el=document.createElement('div');el.className='replay';
+  el.innerHTML=`<div class="rp-map" id="rpmap"></div>
+  <div class="styles" id="rpstyles">${STYLES.map(s=>`<button data-s="${s.k}" class="${s.k===styleK?'on':''}">${s.n}</button>`).join('')}</div>
+  <div class="rp-bar">
+   <div class="rp-top"><b>${esc(sh.name||sh.u)}</b><span>${esc(sh.bus||'')}</span><span>${fdate(sh.start_ts)} · ${ftime(sh.start_ts)} – ${ftime(sh.end_ts)}</span><button class="out" id="rp-x">✕</button></div>
+   <input type="range" id="rp-r" min="0" max="${Math.max(1000,pts[pts.length-1].t-pts[0].t)}" value="0" step="500">
+   <div class="rp-ctl"><button class="btn sm gold" id="rp-p">▶ ${TR_('تشغيل','Play')}</button>
+    <select class="t" id="rp-s" style="width:auto;padding:6px 10px">${[1,2,4,8,16].map(x=>`<option value="${x}"${x===4?' selected':''}>${x}x</option>`).join('')}</select>
+    <span id="rp-t"></span><span id="rp-sp"></span><span id="rp-d"></span></div></div>`;
+  document.body.appendChild(el);
+  const rmap=L.map('rpmap',{zoomControl:false,attributionControl:true});
+  L.control.zoom({position:'bottomleft'}).addTo(rmap);
+  let rtile=null;const setRT=k=>{styleK=k;LS.setItem('bt.style',k);const s=STYLES.find(x=>x.k===k);if(rtile)rmap.removeLayer(rtile);rtile=L.layerGroup(s.l.map((u,i)=>L.tileLayer(u,{attribution:i?'':s.a,maxZoom:20,maxNativeZoom:(s.z&&s.z[i])||18,className:(s.c&&s.c[i])||'tf-'+s.k}))).addTo(rmap);document.querySelectorAll('#rpstyles button').forEach(b=>b.classList.toggle('on',b.dataset.s===k))};
+  setRT(styleK);
+  document.querySelectorAll('#rpstyles button').forEach(b=>b.onclick=()=>setRT(b.dataset.s));
+  const segs=[[]];let totKm=0;
+  for(let i=0;i<pts.length;i++){if(i){totKm+=dist([pts[i-1].lat,pts[i-1].lon],[pts[i].lat,pts[i].lon]);if(pts[i].t-pts[i-1].t>18e4)segs.push([])}segs[segs.length-1].push(pts[i])}
+  segs.forEach(sg=>{if(sg.length>1)L.polyline(sg.map(p=>[p.lat,p.lon]),{color:'#4f46e5',weight:5,opacity:.85}).addTo(rmap)});
+  for(let i=1;i<segs.length;i++){const a=segs[i-1][segs[i-1].length-1],b=segs[i][0];L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{color:'#94a3b8',weight:3,dashArray:'4 8'}).addTo(rmap)}
+  L.circleMarker([pts[0].lat,pts[0].lon],{radius:8,color:'#16a34a',fillColor:'#16a34a',fillOpacity:1}).addTo(rmap).bindTooltip(TR_('البداية','Start'));
+  const lp=pts[pts.length-1];
+  L.circleMarker([lp.lat,lp.lon],{radius:8,color:'#dc2626',fillColor:'#dc2626',fillOpacity:1}).addTo(rmap).bindTooltip(TR_('النهاية','End'));
+  const cur=L.marker([pts[0].lat,pts[0].lon],{icon:L.divIcon({html:'<div class="mk mv" style="--c:#4f46e5">🚌</div>',className:'',iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:500}).addTo(rmap);
+  rmap.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lon])),{padding:[40,40]});
+  const t0=pts[0].t,dur=lp.t-t0;
+  let vt=0,playing=false,speed=4,raf=null,idx=0,lastReal=0;
+  const R=$('#rp-r',el),P=$('#rp-p',el),S=$('#rp-s',el),TT=$('#rp-t',el),SP=$('#rp-sp',el),DD=$('#rp-d',el);
+  DD.textContent='📏 '+totKm.toFixed(1)+' '+TR_('كم','km');
+  const posAt=t=>{while(idx<pts.length-2&&pts[idx+1].t<=t)idx++;while(idx>0&&pts[idx].t>t)idx--;
+    const a=pts[idx],b=pts[idx+1]||a,f=b.t>a.t?Math.min(1,(t-a.t)/(b.t-a.t)):0;
+    return{lat:a.lat+(b.lat-a.lat)*f,lon:a.lon+(b.lon-a.lon)*f,sp:f<1?a.sp:0,gap:b.t-a.t>18e4,be:b.t}};
+  const render=()=>{const q=posAt(t0+vt);cur.setLatLng([q.lat,q.lon]);R.value=Math.min(vt,+R.max);TT.textContent='🕐 '+ftime(t0+vt);SP.textContent='🚌 '+Math.round(q.sp)+' '+TR_('كم/س','km/h')};
+  const tick=ts=>{if(!playing)return;const dr=lastReal?ts-lastReal:0;lastReal=ts;vt+=dr*speed;
+    const q=posAt(t0+vt);if(q.gap&&t0+vt>pts[idx].t&&q.be>t0+vt)vt=q.be-t0; // fast-forward through recording gaps
+    if(vt>=dur){vt=dur;playing=false;P.innerHTML='▶ '+TR_('تشغيل','Play')}
+    render();if(playing)raf=requestAnimationFrame(tick)};
+  P.onclick=()=>{playing=!playing;P.innerHTML=(playing?'⏸ '+TR_('إيقاف','Pause'):'▶ '+TR_('تشغيل','Play'));if(playing){if(vt>=dur){vt=0;idx=0}lastReal=0;raf=requestAnimationFrame(tick)}else cancelAnimationFrame(raf)};
+  S.onchange=()=>{speed=+S.value};
+  R.oninput=()=>{vt=+R.value;render()};
+  render();
+  $('#rp-x',el).onclick=()=>{cancelAnimationFrame(raf);rmap.remove();el.remove()};
+}
 
-async function accTab(){
+
+async function accTab(flash){
   let adms=null;if(!session.sub){try{adms=(await api('/api/admins')).admins}catch(e){if(e.message==='unauth')return}}
   const LVL={manager:'مدير تشغيل',viewer:'مدير عام (عرض فقط)'};
-  $('#body').innerHTML=`<div class="rep"><div class="card"><b>تغيير كلمة مروري (${esc(session.u)})</b>
+  $('#body').innerHTML=`<div class="rep">${flash?`<div class="banner ok" style="margin-bottom:14px">${esc(flash)}</div>`:''}<div class="card"><b>تغيير كلمة مروري (${esc(session.u)})</b>
    <label class="f">كلمة المرور الحالية</label><input class="t" id="pc" type="password" autocomplete="current-password">
-   <label class="f">كلمة المرور الجديدة (8 أحرف على الأقل)</label><input class="t" id="pn" type="password" autocomplete="new-password">
+   <label class="f">كلمة المرور الجديدة (4 أحرف على الأقل)</label><input class="t" id="pn" type="password" autocomplete="new-password">
    <div class="err" id="pe"></div><button class="btn gold" id="ps">حفظ</button></div>
    ${session.sub?'':`<div class="card" style="margin-top:14px"><b>المستخدمون الإداريون</b><small style="display:block;color:#64748b;margin:4px 0 10px">أنشئ حسابات إدارة إضافية واختر صلاحية كل حساب.</small>
    <table><thead><tr><th>المستخدم</th><th>الصلاحية</th><th>الحالة</th><th></th></tr></thead><tbody>${(adms||[]).map(a=>`<tr><td><b>${esc(a.name)}</b><br><small style="color:#64748b">${esc(a.u)}</small></td><td>${a.sub?(LVL[a.sub]||esc(a.sub)):'مدير كامل'}</td><td>${a.active?'مفعّل':'موقوف'}</td>
     <td>${a.u==='admin'?'':`<button class="btn sm ghost" data-alvl="${esc(a.u)}|${a.sub==='viewer'?'manager':'viewer'}">${a.sub==='viewer'?'إلى مدير تشغيل':'إلى عرض فقط'}</button> <button class="btn sm ghost" data-apw="${esc(a.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-aact="${esc(a.u)}|${a.active?0:1}">${a.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-adel="${esc(a.u)}|${esc(a.name)}">حذف</button>`}</td></tr>`).join('')}</tbody></table>
    <b style="display:block;margin:16px 0 2px">إضافة مستخدم إداري</b>
    <label class="f">الاسم</label><input class="t" id="an" style="direction:rtl">
-   <label class="f">اسم المستخدم (إنجليزي)</label><input class="t" id="au" autocapitalize="off">
-   <label class="f">كلمة المرور (8 أحرف على الأقل)</label><input class="t" id="aw" type="text" autocomplete="off">
+   <label class="f">اسم المستخدم للدخول (حروف إنجليزية وأرقام فقط)</label><input class="t" id="au" dir="ltr" style="text-align:left" autocapitalize="off" autocorrect="off" spellcheck="false">
+   <label class="f">كلمة المرور (4 أحرف على الأقل)</label><input class="t" id="aw" type="text" autocomplete="off">
    <label class="f">الصلاحية</label><select class="t" id="al"><option value="manager">مدير تشغيل — يدير السائقين والإعدادات</option><option value="viewer">مدير عام — عرض فقط بدون أي تغيير</option></select>
    <div class="err" id="ae"></div><button class="btn gold" id="aa">إضافة</button></div>`}</div>`;
-  $('#ps').onclick=async()=>{try{await api('/api/me/password',{method:'POST',body:{current:$('#pc').value,password:$('#pn').value}});$('#pc').value=$('#pn').value='';$('#pe').textContent='';toast('تم تغيير كلمة المرور')}catch(e){$('#pe').textContent=e.code==='wrong_password'||e.message==='wrong_password'?'كلمة المرور الحالية غير صحيحة':e.code==='password_too_short'||e.message==='password_too_short'?'كلمة المرور الجديدة 8 أحرف على الأقل':errMsg(e)}};
-  if($('#aa'))$('#aa').onclick=async()=>{try{await api('/api/admins',{method:'POST',body:{name:$('#an').value,u:$('#au').value,password:$('#aw').value,level:$('#al').value}});toast('تمت إضافة المستخدم');accTab()}catch(e){$('#ae').textContent=e.code==='exists'||e.message==='exists'?'اسم المستخدم مستخدم':e.code==='bad_request'||e.message==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 8 أحرف أو أكثر':errMsg(e)}};
-  document.querySelectorAll('[data-apw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.apw+' (8 أحرف على الأقل)');if(!p)return;try{await api('/api/admins/'+b.dataset.apw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
+  $('#ps').onclick=async()=>{try{await api('/api/me/password',{method:'POST',body:{current:$('#pc').value,password:$('#pn').value}});$('#pc').value=$('#pn').value='';$('#pe').textContent='';toast('تم تغيير كلمة المرور')}catch(e){$('#pe').textContent=e.code==='wrong_password'||e.message==='wrong_password'?'كلمة المرور الحالية غير صحيحة':e.code==='password_too_short'||e.message==='password_too_short'?'كلمة المرور الجديدة 4 أحرف على الأقل':errMsg(e)}};
+  if($('#aa'))$('#aa').onclick=async()=>{const u=unorm($('#au').value);if(!/^[a-z0-9._-]+$/.test(u)){$('#ae').textContent='اسم المستخدم للدخول: حروف إنجليزية صغيرة وأرقام فقط (a-z 0-9 . _ -) بدون مسافات';return}if(String($('#aw').value).trim().length<4){$('#ae').textContent='كلمة المرور 4 أحرف على الأقل';return}try{await api('/api/admins',{method:'POST',body:{name:$('#an').value,u,password:$('#aw').value,level:$('#al').value}});accTab('تمت إضافة المستخدم ✓ اسم المستخدم للدخول: '+u)}catch(e){$('#ae').textContent=e.code==='exists'||e.message==='exists'?'اسم المستخدم مستخدم':e.code==='bad_request'||e.message==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 4 أحرف أو أكثر':errMsg(e)}};
+  document.querySelectorAll('[data-apw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.apw+' (4 أحرف على الأقل)');if(!p)return;try{await api('/api/admins/'+b.dataset.apw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
   document.querySelectorAll('[data-aact]').forEach(b=>b.onclick=async()=>{const[u,a]=b.dataset.aact.split('|');await api('/api/admins/'+u,{method:'PATCH',body:{active:a==='1'}});accTab()});
   document.querySelectorAll('[data-alvl]').forEach(b=>b.onclick=async()=>{const[u,l]=b.dataset.alvl.split('|');await api('/api/admins/'+u,{method:'PATCH',body:{level:l}});toast('تم تغيير الصلاحية');accTab()});
   document.querySelectorAll('[data-adel]').forEach(b=>b.onclick=async()=>{const[u,n]=b.dataset.adel.split('|');if(!confirm('حذف المستخدم الإداري '+n+'؟'))return;try{await api('/api/admins/'+u,{method:'DELETE'});toast('تم حذف المستخدم');accTab()}catch(e){toast(errMsg(e))}});
 }
 
-async function drvTab(){
+async function drvTab(flash){
   const viewer=session?.sub==='viewer';
   let list=[];try{list=await api('/api/drivers')}catch(e){if(e.message==='unauth')return}
   let cons={},cfg={pingSec:15};try{(await api('/api/consents')).consents.forEach(c=>cons[c.u]=c)}catch(_){}try{cfg=await api('/api/config')}catch(_){}
   let buses=[];
-  $('#body').innerHTML=`<div class="rep">${viewer?'<div class="banner warn" style="margin-bottom:14px">وضع العرض فقط — يمكنك الاطلاع على كل شيء بدون إجراء تغييرات.</div>':`<div class="card"><b>فترة إرسال الموقع من التطبيق</b><label class="f">بالثواني (من 5 إلى 300)</label><input class="t" id="ps2" inputmode="numeric" value="${cfg.pingSec||15}"><div class="err" id="pse"></div><button class="btn gold" id="psb">حفظ</button></div>
+  $('#body').innerHTML=`<div class="rep">${flash?`<div class="banner ok" style="margin-bottom:14px">${esc(flash)}</div>`:''}${viewer?'<div class="banner warn" style="margin-bottom:14px">وضع العرض فقط — يمكنك الاطلاع على كل شيء بدون إجراء تغييرات.</div>':`<div class="card"><b>فترة إرسال الموقع من التطبيق</b><label class="f">بالثواني (من 5 إلى 300)</label><input class="t" id="ps2" inputmode="numeric" value="${cfg.pingSec||15}"><div class="err" id="pse"></div><button class="btn gold" id="psb">حفظ</button></div>
   <div class="card" style="margin-top:14px"><b>إضافة سائق</b>
    <label class="f">الاسم</label><input class="t" id="dn" style="direction:rtl">
-   <label class="f">اسم المستخدم (إنجليزي)</label><input class="t" id="du" autocapitalize="off">
+   <label class="f">اسم المستخدم للدخول (حروف إنجليزية وأرقام فقط)</label><input class="t" id="du" dir="ltr" style="text-align:left" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shakeer">
    <label class="f">الجوال</label><input class="t" id="dp" inputmode="tel">
    <label class="f">الباص الافتراضي</label><input class="t" id="db" placeholder="B-101">
-   <label class="f">كلمة المرور (8 أحرف على الأقل)</label><input class="t" id="dw" type="text" autocomplete="off">
+   <label class="f">كلمة المرور (4 أحرف على الأقل)</label><input class="t" id="dw" type="text" autocomplete="off">
    <div class="err" id="de"></div><button class="btn gold" id="da">إضافة</button></div>`}
    <h3 style="margin:18px 0 8px">السائقون (${list.length})</h3>
    <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th>${viewer?'':'<th></th>'}</tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#64748b">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}<br><small style="color:${cons[d.u]?'#16a34a':'#d97706'}">${cons[d.u]?'وافق على التتبع '+fdate(cons[d.u].ts):'لم يوافق على التتبع بعد'}</small></td>
-    ${viewer?'':`<td>${d.phone?`<a class="btn sm ghost" href="https://wa.me/${String(d.phone).replace(/\D/g,'').replace(/^0/,'966')}?text=${encodeURIComponent('مرحبًا '+d.name+'، معك إدارة النقل: ')}" target="_blank" rel="noopener">واتساب</a> `:''}<button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td>`}</tr>`).join('')}</tbody></table></div>`;
-  if($('#da'))$('#da').onclick=async()=>{try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u:$('#du').value,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value}});
-      const b=$('#db').value.trim();if(b)await api('/api/buses',{method:'POST',body:{id:b}}).catch(()=>{});toast('تمت إضافة السائق');drvTab()}catch(e){$('#de').textContent=e.code==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 8 أحرف أو أكثر':errMsg(e)}};
+    ${viewer?'':`<td><button class="btn sm ghost" data-trk="${esc(d.u)}|${esc(d.name)}">المسارات</button> <button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td>`}</tr>`).join('')}</tbody></table></div>`;
+  if($('#da'))$('#da').onclick=async()=>{const u=unorm($('#du').value);if(!/^[a-z0-9._-]+$/.test(u)){$('#de').textContent='اسم المستخدم للدخول: حروف إنجليزية صغيرة وأرقام فقط (a-z 0-9 . _ -) بدون مسافات';return}if(String($('#dw').value).trim().length<4){$('#de').textContent='كلمة المرور 4 أحرف على الأقل';return}try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value}});
+      const b=$('#db').value.trim();if(b)await api('/api/buses',{method:'POST',body:{id:b}}).catch(()=>{});drvTab('تمت إضافة السائق ✓ اسم المستخدم للدخول: '+u)}catch(e){$('#de').textContent=e.code==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 4 أحرف أو أكثر':e.code==='username_taken'?'اسم المستخدم مستخدم':errMsg(e)}};
   if($('#psb'))$('#psb').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:{pingSec:parseInt($('#ps2').value)}});$('#pse').textContent='';toast('تم الحفظ')}catch(e){$('#pse').textContent='القيمة من 5 إلى 300 ثانية'}};
-  document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.pw+' (8 أحرف على الأقل)');if(!p)return;try{await api('/api/drivers/'+b.dataset.pw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
+  document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.pw+' (4 أحرف على الأقل)');if(!p)return;try{await api('/api/drivers/'+b.dataset.pw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
+  document.querySelectorAll('[data-trk]').forEach(b=>b.onclick=()=>{const[u,n]=b.dataset.trk.split('|');shiftsDrawer(u,n)});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const[u,n]=b.dataset.del.split('|');if(!confirm('حذف السائق '+n+' نهائيا؟ سيتم حذف بياناته وسجل دوامه ولا يمكن التراجع. (للإيقاف المؤقت استخدم إيقاف)'))return;if(!confirm('تأكيد أخير: حذف '+n+' نهائيا؟'))return;try{await api('/api/drivers/'+u,{method:'DELETE'});toast('تم حذف السائق');drvTab()}catch(e){toast(e.code==='shift_open'||e.message==='shift_open'?'السائق عنده دوام مفتوح، لازم يسلم الباص أولا':errMsg(e))}});
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const[u,a]=b.dataset.act.split('|');await api('/api/drivers/'+u,{method:'PATCH',body:{active:a==='1'}});drvTab()});
 }
 
 
-const CONSENT_V='1';
+const CONSENT_V='2';
 function consentModal(){return new Promise(res=>{const el=document.createElement('div');el.className='consent';
   el.innerHTML=`<div class="cbox"><h2>إشعار تتبع الموقع</h2>
   <p>هذا الهاتف والتطبيق ملك الشركة. قبل الاستخدام يرجى قراءة ما يلي:</p>
   <ul><li><b>ما الذي يُجمع:</b> موقعك الجغرافي (الإحداثيات والسرعة ودقة الموقع)، ونسبة بطارية الجهاز، ووقت كل تحديث.</li>
   <li><b>متى:</b> من لحظة استلام الباص حتى تسليمه، بشكل متواصل، حتى لو كانت الشاشة مقفلة أو التطبيق في الخلفية. يظهر إشعار دائم "تتبع الموقع شغال" أثناء ذلك. خارج الدوام يُرسل الموقع فقط أثناء فتح التطبيق.</li>
   <li><b>من يرى بياناتك:</b> مدير النظام ومدير التشغيل فقط.</li>
-  <li><b>مدة الحفظ:</b> يُحفظ آخر موقع فقط ويُستبدل مع كل تحديث، ولا يُحفظ سجل مسارات. يُحفظ سجل الدوام (أوقات الاستلام والتسليم والوقت الإضافي) حسب سياسة الشركة.</li>
+  <li><b>مدة الحفظ:</b> يُحفظ آخر موقع ويُستبدل مع كل تحديث. يُحفظ سجل مسار كل دوام (نقاط الموقع من الاستلام إلى التسليم) لمدة 90 يومًا لعرض المسار للإدارة، ثم يُحذف تلقائيًا. يُحفظ سجل الدوام (أوقات الاستلام والتسليم والوقت الإضافي) حسب سياسة الشركة.</li>
   <li><b>الغرض:</b> متابعة أسطول الباصات والسلامة وحساب الوقت الإضافي، ولا يُستخدم لغير ذلك.</li></ul>
   <p>بالضغط على "أوافق" تؤكد أنك قرأت الإشعار ووافقت على التتبع المذكور. تسجّل موافقتك مع التاريخ والوقت. إذا لم توافق لن تتمكن من استخدام التطبيق.</p>
   <button class="btn gold" id="c-ok">أوافق</button> <button class="btn ghost" id="c-no">لا أوافق</button></div>`;

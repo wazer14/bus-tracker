@@ -22,6 +22,18 @@ const J=(d,s,h)=>new Response(JSON.stringify(d),{status:s||200,headers:{'content
 const num=(v,min,max)=>{v=Number(v);return Number.isFinite(v)&&v>=min&&v<=max?v:null};
 const str=(v,n)=>typeof v==='string'&&v.trim()&&v.length<=n?v.trim():null;
 
+// Login robustness: ONE username per account. Accept trimmed, case-insensitive input,
+// Arabic-Indic/Persian digits, and Arabic keyboard-layout slips (typing shakeer with the
+// keyboard in Arabic produces ساشنثثق, which maps back to shakeer by key position).
+const PW_MIN=4;
+const ARD='٠١٢٣٤٥٦٧٨٩',FAD='۰۱۲۳۴۵۶۷۸۹';
+const KBD={'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p','ج':'[','د':']','ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l','ك':';','ط':"'",'ئ':'z','ء':'x','ؤ':'c','ر':'v','ى':'n','ة':'m','و':',','ز':'.','ظ':'/','آ':'h','أ':'h','إ':'h'};
+const digits=s=>s.replace(/[٠-٩]/g,c=>ARD.indexOf(c)).replace(/[۰-۹]/g,c=>FAD.indexOf(c));
+const normU=u=>{if(typeof u!=='string')return null;const n=digits(u.normalize('NFKC').replace(/[ً-ْٰـ]/g,'')).trim().toLowerCase();return n||null};
+const normP=p=>typeof p==='string'?digits(p.normalize('NFKC')).trim():'';
+const uCands=u=>{const n=normU(u);if(!n)return[];const kb=[...n].map(c=>KBD[c]??c).join('');return[...new Set([n,kb])]};
+async function pwMatch(input,row){const np=normP(input);for(const cand of(input===np?[input]:[input,np]))if(eq(await hashPw(cand,row.pw_salt),row.pw_hash))return true;return false}
+
 // FCM push: service-account credentials live in Worker secrets (FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY).
 async function gcpToken(env){
   const now=Math.floor(Date.now()/1000);
@@ -58,14 +70,15 @@ async function ensureAdmin(env){
   const salt=newSalt();await env.DB.prepare("INSERT OR IGNORE INTO users(u,name,role,pw_hash,pw_salt,created_at) VALUES('admin','مدير التشغيل','admin',?,?,?)").bind(await hashPw(env.ADMIN_PASSWORD,salt),salt,Date.now()).run();
 }
 async function login(env,req,H){
-  const b=await req.json().catch(()=>({}));const u=str(b.u,60)?.toLowerCase(),p=typeof b.p==='string'?b.p:'';
-  if(!u||!p)return J({error:'bad_request'},400,H);
-  const ip=req.headers.get('CF-Connecting-IP')||'x',k=u+'|'+ip,f=await env.DB.prepare('SELECT n,ts FROM login_fail WHERE k=?').bind(k).first();
+  const b=await req.json().catch(()=>({}));const p=typeof b.p==='string'?b.p:'';
+  const cands=uCands(b.u).filter(c=>c.length<=60);
+  if(!cands.length||!p)return J({error:'bad_request'},400,H);
+  const ip=req.headers.get('CF-Connecting-IP')||'x',k=cands[0]+'|'+ip,f=await env.DB.prepare('SELECT n,ts FROM login_fail WHERE k=?').bind(k).first();
   if(f&&f.n>=5&&Date.now()-f.ts<15*60e3)return J({error:'too_many_attempts'},429,H);
   await ensureAdmin(env);
-  const row=await env.DB.prepare('SELECT * FROM users WHERE u=? AND active=1').bind(u).first();
-  const h=await hashPw(p,row?row.pw_salt:newSalt());
-  if(!row||!eq(h,row.pw_hash)){await env.DB.prepare('INSERT INTO login_fail(k,n,ts) VALUES(?,1,?) ON CONFLICT(k) DO UPDATE SET n=CASE WHEN ?-ts>900000 THEN 1 ELSE n+1 END,ts=?').bind(k,Date.now(),Date.now(),Date.now()).run();return J({error:'invalid_credentials'},401,H)}
+  let row=null;for(const c of cands){row=await env.DB.prepare('SELECT * FROM users WHERE u=? AND active=1').bind(c).first();if(row)break}
+  const h=await hashPw(normP(p),row?row.pw_salt:newSalt());
+  if(!row||!(eq(h,row.pw_hash)||await pwMatch(p,row))){await env.DB.prepare('INSERT INTO login_fail(k,n,ts) VALUES(?,1,?) ON CONFLICT(k) DO UPDATE SET n=CASE WHEN ?-ts>900000 THEN 1 ELSE n+1 END,ts=?').bind(k,Date.now(),Date.now(),Date.now()).run();return J({error:'invalid_credentials'},401,H)}
   await env.DB.prepare('DELETE FROM login_fail WHERE k=?').bind(k).run();
   const token=await sign(env,{u:row.u,role:row.role,exp:Date.now()+14*86400e3});
   return J({token,user:{u:row.u,name:row.name,role:row.role,bus:row.bus,sub:row.sub||null}},200,H);
@@ -87,6 +100,7 @@ async function position(env,me,req,H){
     if(prev&&(acc==null||acc<80)&&d>0.005&&d<2&&dt<5*60e3)km=d; // ignore jitter and teleports
     if(moving&&prev&&!prev.moving&&prev.still_ms>60e3)trips=1;
     if(km||trips)await env.DB.prepare('UPDATE shifts SET km=km+?,trips=trips+? WHERE id=?').bind(km,trips,sh.id).run();
+    await trackPoint(env,sh.id,me.u,now,lat,lon,speed,acc,bat);
   }
   await env.DB.prepare('INSERT INTO positions(u,lat,lon,speed,acc,bat,ts,moving,still_ms) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(u) DO UPDATE SET lat=?,lon=?,speed=?,acc=?,bat=COALESCE(?,bat),ts=?,moving=?,still_ms=?')
    .bind(me.u,lat,lon,speed,acc,bat,now,moving,still,lat,lon,speed,acc,bat,now,moving,still).run();
@@ -97,8 +111,18 @@ let tablesOk=false;
 async function ensureTables(env){if(tablesOk)return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS consents(id INTEGER PRIMARY KEY AUTOINCREMENT,u TEXT NOT NULL,version TEXT NOT NULL,ts INTEGER NOT NULL,device TEXT)').run();
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)').run();
-  await env.DB.prepare('CREATE TABLE IF NOT EXISTS push_tokens(u TEXT PRIMARY KEY,token TEXT NOT NULL,platform TEXT,ts INTEGER NOT NULL)').run();tablesOk=true}
-const CONSENT_V='1';
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS push_tokens(u TEXT PRIMARY KEY,token TEXT NOT NULL,platform TEXT,ts INTEGER NOT NULL)').run();
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS track(shift_id INTEGER NOT NULL,u TEXT NOT NULL,ts INTEGER NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,speed REAL,acc REAL,bat INTEGER)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS track_shift ON track(shift_id,ts)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS track_u ON track(u,ts)').run();tablesOk=true}
+// Route replay: store a breadcrumb per open shift, sampled to ~1 point per 8s or 15m of movement.
+async function trackPoint(env,shId,u,ts,lat,lon,speed,acc,bat){
+  await ensureTables(env);
+  const last=await env.DB.prepare('SELECT ts,lat,lon FROM track WHERE shift_id=? ORDER BY ts DESC LIMIT 1').bind(shId).first();
+  if(last&&ts-last.ts<8000&&dist(last.lat,last.lon,lat,lon)<0.015)return;
+  await env.DB.prepare('INSERT INTO track(shift_id,u,ts,lat,lon,speed,acc,bat) VALUES(?,?,?,?,?,?,?,?)').bind(shId,u,ts,lat,lon,speed,acc,bat).run();
+}
+const CONSENT_V='2';
 async function getSettings(env){await ensureTables(env);const r=await env.DB.prepare('SELECT k,v FROM settings').all();const m={};r.results.forEach(x=>m[x.k]=x.v);
   return {pingSec:Math.min(300,Math.max(5,parseInt(m.pingSec)||15)),flushSec:Math.min(120,Math.max(10,parseInt(m.flushSec)||30))}}
 async function positionsBatch(env,me,req,H){
@@ -119,6 +143,7 @@ async function positionsBatch(env,me,req,H){
     if(sh&&pl&&(p.acc==null||p.acc<80)&&d>0.005&&d<2&&dt<5*60e3)km+=d;
     if(sh&&moving&&pl&&!pl.moving&&pl.still>60e3)trips++;
     pl={lat:p.lat,lon:p.lon,ts:p.ts,moving,still};speed=sp;acc=p.acc;if(p.bat!=null)bat=p.bat;used++;
+    if(sh)await trackPoint(env,sh.id,me.u,p.ts,p.lat,p.lon,sp,p.acc,p.bat);
   }
   if(!used)return J({ok:true,used:0,ts:prev?prev.ts:now},200,H);
   if(sh&&(km||trips))await env.DB.prepare('UPDATE shifts SET km=km+?,trips=trips+? WHERE id=?').bind(km,trips,sh.id).run();
@@ -213,7 +238,8 @@ export default {
       if(path==='/api/shift/start'&&req.method==='POST'){
         if(me.role!=='driver')return J({error:'forbidden'},403,H);
         const b=await req.json().catch(()=>({}));const bus=str(b.bus,40);if(!bus)return J({error:'bus_required'},400,H);
-        await shiftGuards(env);await closeStaleShifts(env);
+        await shiftGuards(env);await closeStaleShifts(env);await ensureTables(env);
+        await env.DB.prepare('DELETE FROM track WHERE ts<?').bind(Date.now()-90*864e5).run(); // route history retention: 90 days
         const open=await env.DB.prepare('SELECT id FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();if(open)return J({error:'shift_already_open'},409,H);
         const busy=await env.DB.prepare('SELECT u FROM shifts WHERE bus=? AND end_ts IS NULL').bind(bus).first();if(busy)return J({error:'bus_in_use'},409,H);
         try{await env.DB.prepare('INSERT INTO shifts(u,bus,start_ts) VALUES(?,?,?)').bind(me.u,bus,Date.now()).run()}
@@ -234,10 +260,10 @@ export default {
       }
       if(path==='/api/me/password'&&req.method==='POST'){
         if(me.role!=='admin')return J({error:'forbidden'},403,H);
-        const b=await req.json().catch(()=>({}));const cur=typeof b.current==='string'?b.current:'',np=typeof b.password==='string'?b.password:'';
-        if(np.length<8)return J({error:'password_too_short'},400,H);
+        const b=await req.json().catch(()=>({}));const cur=typeof b.current==='string'?b.current:'',np=normP(b.password);
+        if(np.length<PW_MIN)return J({error:'password_too_short'},400,H);
         const row=await env.DB.prepare('SELECT * FROM users WHERE u=?').bind(me.u).first();
-        if(!row||!eq(await hashPw(cur,row.pw_salt),row.pw_hash))return J({error:'wrong_password'},403,H);
+        if(!row||!await pwMatch(cur,row))return J({error:'wrong_password'},403,H);
         const salt=newSalt();await env.DB.prepare('UPDATE users SET pw_hash=?,pw_salt=? WHERE u=?').bind(await hashPw(np,salt),salt,me.u).run();
         return J({ok:true},200,H);
       }
@@ -249,13 +275,13 @@ export default {
       if(path==='/api/manager'&&req.method==='PUT'){
         if(me.sub)return J({error:'forbidden'},403,H);
         const b=await req.json().catch(()=>({}));const cur=await env.DB.prepare("SELECT u FROM users WHERE sub='manager'").first();
-        const u=str(b.u,40)?.toLowerCase()||cur?.u,name=str(b.name,80)||'مدير التشغيل',pw=typeof b.password==='string'?b.password:'';
-        if(!u||!/^[a-z0-9._-]+$/.test(u)||u==='admin')return J({error:'bad_request'},400,H);
+        const u=normU(b.u)||cur?.u,name=str(b.name,80)||'مدير التشغيل',pw=normP(b.password);
+        if(!u||u.length>40||!/^[a-z0-9._-]+$/.test(u)||u==='admin')return J({error:'bad_request'},400,H);
         if(cur&&u!==cur.u&&await env.DB.prepare('SELECT 1 FROM users WHERE u=?').bind(u).first())return J({error:'exists'},409,H);
-        if(!cur){if(pw.length<8)return J({error:'password_too_short'},400,H);
+        if(!cur){if(pw.length<PW_MIN)return J({error:'password_too_short'},400,H);
           if(await env.DB.prepare('SELECT 1 FROM users WHERE u=?').bind(u).first())return J({error:'exists'},409,H);
           const salt=newSalt();await env.DB.prepare("INSERT INTO users(u,name,role,sub,pw_hash,pw_salt,created_at) VALUES(?,?,'admin','manager',?,?,?)").bind(u,name,await hashPw(pw,salt),salt,Date.now()).run();return J({ok:true,created:true},201,H)}
-        if(pw&&pw.length<8)return J({error:'password_too_short'},400,H);
+        if(pw&&pw.length<PW_MIN)return J({error:'password_too_short'},400,H);
         await env.DB.prepare("UPDATE users SET u=?,name=?,active=1 WHERE sub='manager'").bind(u,name).run();
         if(pw){const salt=newSalt();await env.DB.prepare("UPDATE users SET pw_hash=?,pw_salt=? WHERE sub='manager'").bind(await hashPw(pw,salt),salt).run()}
         return J({ok:true},200,H);
@@ -270,9 +296,9 @@ export default {
       }
       if(path==='/api/admins'&&req.method==='POST'){
         if(me.sub)return J({error:'forbidden'},403,H);
-        const b=await req.json().catch(()=>({}));const u=str(b.u,40)?.toLowerCase(),name=str(b.name,80),pw=typeof b.password==='string'?b.password:'';
+        const b=await req.json().catch(()=>({}));const u=normU(b.u),name=str(b.name,80),pw=normP(b.password);
         const level=b.level==='viewer'?'viewer':'manager';
-        if(!u||!/^[a-z0-9._-]+$/.test(u)||u==='admin'||!name||pw.length<8)return J({error:'bad_request'},400,H);
+        if(!u||u.length>40||!/^[a-z0-9._-]+$/.test(u)||u==='admin'||!name||pw.length<PW_MIN)return J({error:'bad_request'},400,H);
         if(await env.DB.prepare('SELECT 1 FROM users WHERE u=?').bind(u).first())return J({error:'exists'},409,H);
         const salt=newSalt();await env.DB.prepare("INSERT INTO users(u,name,role,sub,pw_hash,pw_salt,created_at) VALUES(?,?,'admin',?,?,?,?)").bind(u,name,level,await hashPw(pw,salt),salt,Date.now()).run();
         return J({ok:true,created:true},201,H);
@@ -286,7 +312,7 @@ export default {
         if(u==='admin'||u===me.u)return J({error:'protected'},400,H);
         if(req.method==='DELETE'){await env.DB.prepare("DELETE FROM users WHERE u=? AND role='admin'").bind(u).run();return J({ok:true},200,H)}
         const b=await req.json().catch(()=>({}));
-        if(typeof b.password==='string'&&b.password){if(b.password.length<8)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare('UPDATE users SET pw_hash=?,pw_salt=? WHERE u=?').bind(await hashPw(b.password,salt),salt,u).run()}
+        if(typeof b.password==='string'&&b.password){const np=normP(b.password);if(np.length<PW_MIN)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare('UPDATE users SET pw_hash=?,pw_salt=? WHERE u=?').bind(await hashPw(np,salt),salt,u).run()}
         if(b.name!==undefined&&str(b.name,80))await env.DB.prepare('UPDATE users SET name=? WHERE u=?').bind(str(b.name,80),u).run();
         if(b.active!==undefined)await env.DB.prepare('UPDATE users SET active=? WHERE u=?').bind(b.active?1:0,u).run();
         if(b.level==='manager'||b.level==='viewer')await env.DB.prepare('UPDATE users SET sub=? WHERE u=?').bind(b.level,u).run();
@@ -294,10 +320,17 @@ export default {
       }
       if(path==='/api/fleet'&&req.method==='GET')return J(await fleet(env),200,H);
       if(path==='/api/report'&&req.method==='GET'){const r=await report(env,url.searchParams.get('month')||'');return r?J(r,200,H):J({error:'bad_month'},400,H)}
+      if(path==='/api/shifts'&&req.method==='GET'){const du=url.searchParams.get('u')||'';if(!/^[a-z0-9._-]+$/.test(du))return J({error:'bad_request'},400,H);await ensureShiftCols(env);
+        return J({shifts:(await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts,km,trips,auto_closed,reviewed FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 30').bind(du).all()).results},200,H)}
+      if(path==='/api/track'&&req.method==='GET'){await ensureTables(env);const id=+url.searchParams.get('shift')||0;
+        const sh=await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts FROM shifts WHERE id=?').bind(id).first();if(!sh)return J({error:'not_found'},404,H);
+        const usr=await env.DB.prepare('SELECT name FROM users WHERE u=?').bind(sh.u).first();
+        const pts=(await env.DB.prepare('SELECT ts,lat,lon,speed FROM track WHERE shift_id=? ORDER BY ts').bind(id).all()).results;
+        return J({shift:{id:sh.id,u:sh.u,name:usr?usr.name:sh.u,bus:sh.bus,start_ts:sh.start_ts,end_ts:sh.end_ts},points:pts.map(p=>[p.ts,p.lat,p.lon,Math.round((p.speed||0)*10)/10])},200,H)}
       if(path==='/api/drivers'&&req.method==='GET')return J((await env.DB.prepare("SELECT u,name,phone,bus,active FROM users WHERE role='driver' ORDER BY name").all()).results,200,H);
       if(path==='/api/drivers'&&req.method==='POST'){
-        const b=await req.json().catch(()=>({}));const u=str(b.u,40)?.toLowerCase(),name=str(b.name,80),pw=typeof b.password==='string'?b.password:'';
-        if(!u||!/^[a-z0-9._-]+$/.test(u)||!name||pw.length<8)return J({error:'bad_request',hint:'username a-z0-9._-, name, password >= 8 chars'},400,H);
+        const b=await req.json().catch(()=>({}));const u=normU(b.u),name=str(b.name,80),pw=normP(b.password);
+        if(!u||u.length>40||!/^[a-z0-9._-]+$/.test(u)||!name||pw.length<PW_MIN)return J({error:'bad_request',hint:'username a-z0-9._-, name, password >= 4 chars'},400,H);
         const salt=newSalt();
         try{await env.DB.prepare("INSERT INTO users(u,name,phone,role,pw_hash,pw_salt,bus,created_at) VALUES(?,?,?, 'driver',?,?,?,?)").bind(u,name,str(b.phone,20),await hashPw(pw,salt),salt,str(b.bus,40),Date.now()).run()}catch(_){return J({error:'username_taken'},409,H)}
         return J({ok:true},201,H);
@@ -305,7 +338,7 @@ export default {
       const m=path.match(/^\/api\/drivers\/([a-z0-9._-]+)$/);
       if(m&&req.method==='PATCH'){
         const b=await req.json().catch(()=>({}));const u=m[1];
-        if(typeof b.password==='string'){if(b.password.length<8)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare("UPDATE users SET pw_hash=?,pw_salt=? WHERE u=? AND role='driver'").bind(await hashPw(b.password,salt),salt,u).run()}
+        if(typeof b.password==='string'){const np=normP(b.password);if(np.length<PW_MIN)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare("UPDATE users SET pw_hash=?,pw_salt=? WHERE u=? AND role='driver'").bind(await hashPw(np,salt),salt,u).run()}
         if(b.name!==undefined&&str(b.name,80))await env.DB.prepare("UPDATE users SET name=? WHERE u=? AND role='driver'").bind(str(b.name,80),u).run();
         if(b.phone!==undefined)await env.DB.prepare("UPDATE users SET phone=? WHERE u=? AND role='driver'").bind(str(b.phone,20),u).run();
         if(b.bus!==undefined)await env.DB.prepare("UPDATE users SET bus=? WHERE u=? AND role='driver'").bind(str(b.bus,40),u).run();
@@ -315,7 +348,7 @@ export default {
       if(m&&req.method==='DELETE'){
         const u=m[1];const row=await env.DB.prepare("SELECT u FROM users WHERE u=? AND role='driver'").bind(u).first();if(!row)return J({error:'not_found'},404,H);
         if(await env.DB.prepare('SELECT 1 FROM shifts WHERE u=? AND end_ts IS NULL').bind(u).first())return J({error:'shift_open'},409,H);
-        await env.DB.prepare('DELETE FROM shifts WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(u).run();
+        await env.DB.prepare('DELETE FROM shifts WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM track WHERE u=?').bind(u).run();
         await env.DB.prepare("DELETE FROM users WHERE u=? AND role='driver'").bind(u).run();return J({ok:true},200,H);
       }
       if(path==='/api/buses'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const id=str(b.id,40);if(!id)return J({error:'bad_request'},400,H);await env.DB.prepare('INSERT OR REPLACE INTO buses(id,label,active) VALUES(?,?,1)').bind(id,str(b.label,80)).run();return J({ok:true},201,H)}

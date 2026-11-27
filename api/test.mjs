@@ -8,7 +8,7 @@ let ok=true;const t=(n,c)=>{console.log(c?'PASS':'FAIL',n);if(!c)ok=false};
 let r=await call('POST','/api/login',{u:'admin',p:'wrong'});t('bad login 401',r.s===401);
 r=await call('POST','/api/login',{u:'admin',p:'adminpass123'});t('admin login',r.s===200&&r.b.user.role==='admin');const A=r.b.token;
 r=await call('GET','/api/fleet');t('no token 401',r.s===401);
-r=await call('POST','/api/drivers',{u:'d1',name:'Test',password:'short'},A);t('short pw rejected',r.s===400);
+r=await call('POST','/api/drivers',{u:'d1',name:'Test',password:'123'},A);t('3-char pw rejected',r.s===400);
 r=await call('POST','/api/drivers',{u:'d1',name:'Test Driver',phone:'0500000000',bus:'B-1',password:'longenough1'},A);t('create driver',r.s===201);
 await call('POST','/api/buses',{id:'B-1'},A);
 r=await call('POST','/api/login',{u:'d1',p:'longenough1'});t('driver login',r.s===200);const D=r.b.token;
@@ -28,7 +28,7 @@ r=await call('POST','/api/positions',{points:[{lat:24.9,lon:46.7,speed:5,ts:nw-3
 r=await call('POST','/api/positions',{points:[]},D);t('empty batch 400',r.s===400);
 r=await call('POST','/api/positions',{points:[{lat:1,lon:1}]},A);t('admin batch 403',r.s===403);
 r=await call('GET','/api/config',null,D);t('config default ping',r.s===200&&r.b.pingSec===15&&r.b.consented===false);
-r=await call('POST','/api/consent',{version:'1',device:'test'},D);t('consent logged',r.s===200);
+r=await call('POST','/api/consent',{version:'2',device:'test'},D);t('consent logged',r.s===200);
 r=await call('GET','/api/config',null,D);t('consented true',r.b.consented===true);
 r=await call('GET','/api/consents',null,A);t('admin sees consents',r.s===200&&r.b.consents[0].u==='d1');
 r=await call('GET','/api/consents',null,D);t('driver cannot list consents',r.s===403);
@@ -55,7 +55,7 @@ const o2=await worker.fetch(new Request('https://api.test/api/manager',{method:'
 r=await call('POST','/api/admins',{u:'gm',name:'General Manager',password:'gmpass1234',level:'viewer'},A);t('create viewer admin',r.s===201);
 r=await call('POST','/api/admins',{u:'gm',name:'Dup',password:'gmpass1234',level:'viewer'},A);t('dup admin rejected',r.s===409);
 r=await call('POST','/api/admins',{u:'admin',name:'No',password:'gmpass1234'},A);t('bootstrap name rejected',r.s===400);
-r=await call('POST','/api/admins',{u:'gm2',name:'Bad',password:'short',level:'viewer'},A);t('viewer short pw rejected',r.s===400);
+r=await call('POST','/api/admins',{u:'gm2',name:'Bad',password:'123',level:'viewer'},A);t('viewer short pw rejected',r.s===400);
 r=await call('GET','/api/admins',null,A);t('list admins',r.s===200&&r.b.admins.some(x=>x.u==='gm'&&x.sub==='viewer')&&r.b.admins.some(x=>x.u==='ops'));
 r=await call('POST','/api/login',{u:'gm',p:'gmpass1234'});t('viewer login',r.s===200&&r.b.user.sub==='viewer');const V=r.b.token;
 r=await call('GET','/api/fleet',null,V);t('viewer reads fleet',r.s===200);
@@ -113,4 +113,27 @@ r=await call('POST','/api/shifts/review',{id:p.id},M);t('ops manager can confirm
 r=await call('GET','/api/report?month='+mo,null,A);
 d1=r.b.drivers.find(x=>x.u==='d1');
 t('reviewed shift counts in overtime totals',d1.pending===beforePend-1&&d1.shifts.find(x=>x.id===p.id).reviewed===true&&Math.abs(d1.overtimeMs-(beforeOt+p.overtimeMs))<1);
+
+// login normalization + 4-char passwords + route track
+r=await call('POST','/api/drivers',{u:'d5',name:'Digits',password:'١٢٣٤٥'},A);t('arabic-digit pw stored',r.s===201);
+r=await call('POST','/api/login',{u:'d5',p:'12345'});t('latin digits match arabic-digit pw',r.s===200);
+r=await call('POST','/api/login',{u:' D5 ',p:'12345'});t('login trims + case-insensitive',r.s===200);
+r=await call('POST','/api/drivers',{u:'d٦',name:'Six',password:'12345'},A);t('arabic-digit username normalized at create',r.s===201);
+r=await call('POST','/api/login',{u:'d6',p:'12345'});t('login with normalized username',r.s===200);
+r=await call('POST','/api/drivers',{u:'samer',name:'KB',password:'12345'},A);t('create samer',r.s===201);
+r=await call('POST','/api/login',{u:'سشةثق',p:'12345'});t('arabic-keyboard username maps to latin',r.s===200&&r.b.user.u==='samer');
+r=await call('POST','/api/drivers',{u:'d7',name:'Seven',password:'1234'},A);t('4-char pw accepted',r.s===201);
+r=await call('POST','/api/drivers',{u:'شاكير',name:'Ar',password:'12345'},A);t('arabic username rejected at create',r.s===400);
+r=await call('POST','/api/login',{u:'d7',p:'1234'});const D7=r.b.token;
+await call('POST','/api/buses',{id:'B-7'},A);
+r=await call('POST','/api/shift/start',{bus:'B-7'},D7);t('track: shift start',r.s===200);
+const T0=Date.now(),tps=[];for(let i=0;i<5;i++)tps.push({lat:24.70+i*0.002,lon:46.70+i*0.002,speed:25,ts:T0-45000+i*9000});
+r=await call('POST','/api/positions',{points:tps},D7);t('track: batch accepted',r.s===200&&r.b.used===5);
+r=await call('POST','/api/shift/end',null,D7);t('track: shift end',r.s===200);
+r=await call('GET','/api/shifts?u=d7',null,A);t('shifts list',r.s===200&&r.b.shifts.length===1);
+const sid=r.b.shifts[0].id;
+r=await call('GET','/api/track?shift='+sid,null,A);t('track points stored',r.s===200&&r.b.points.length===5&&r.b.shift.name==='Seven');
+r=await call('GET','/api/track?shift='+sid,null,D7);t('driver cannot read track',r.s===403||r.s===404);
+r=await call('DELETE','/api/drivers/d7',null,A);t('driver delete cascades track',r.s===200);
+r=await call('GET','/api/track?shift='+sid,null,A);t('track gone after driver delete',r.s===404);
 process.exit(ok?0:1);

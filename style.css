@@ -131,3 +131,13 @@ tr.clk{transition:background .2s}
 .pill{animation:popIn .3s ease both}
 input.t,select.t{transition:border-color .2s,box-shadow .2s}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+/* route replay overlay */
+.replay{position:fixed;inset:0;z-index:1200;background:#fff;display:flex;flex-direction:column}
+.replay .rp-map{flex:1;min-height:0}
+.replay .styles{z-index:1210}
+.rp-bar{background:#fff;border-top:3px solid var(--pri);padding:10px 14px 16px;box-shadow:0 -6px 24px rgba(15,23,42,.16);z-index:1210}
+.rp-top{display:flex;align-items:center;gap:10px;font-size:14px;margin-bottom:6px;flex-wrap:wrap}
+.rp-top span{color:var(--mute);font-size:12.5px}
+.rp-top .out{margin-inline-start:auto;position:static}
+.rp-bar input[type=range]{width:100%;accent-color:var(--pri)}
+.rp-ctl{display:flex;align-items:center;gap:12px;font-size:13px;flex-wrap:wrap;margin-top:6px}
