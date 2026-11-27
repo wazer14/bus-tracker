@@ -198,7 +198,7 @@ var P=[
 ['تم تغيير الصلاحية','Permission level changed'],
 ['حذف المستخدم الإداري ','Delete the admin user '],
 ['وضع العرض فقط — يمكنك الاطلاع على كل شيء بدون إجراء تغييرات.','View-only mode: you can see everything but cannot change anything.'],
-['المستخدم','User']
+['المستخدم','User'],
 ['إسناد مشوار إضافي','Assign an extra trip'],
 ['وقت المشوار','Trip time'],
 ['ملاحظة (اختياري)','Note (optional)'],
