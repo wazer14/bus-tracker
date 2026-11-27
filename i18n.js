@@ -199,6 +199,26 @@ var P=[
 ['حذف المستخدم الإداري ','Delete the admin user '],
 ['وضع العرض فقط — يمكنك الاطلاع على كل شيء بدون إجراء تغييرات.','View-only mode: you can see everything but cannot change anything.'],
 ['المستخدم','User']
+['إسناد مشوار إضافي','Assign an extra trip'],
+['وقت المشوار','Trip time'],
+['ملاحظة (اختياري)','Note (optional)'],
+['إرسال للسائق','Send to driver'],
+['المشاوير الإضافية','Extra trips'],
+['مشاوير مسندة إليك','Trips assigned to you'],
+['بانتظار السائق','Waiting for driver'],
+['بدء المشوار','Start trip'],
+['إنهاء المشوار','End trip'],
+['تفعيل التنبيهات للمشاوير الجديدة','Enable alerts for new trips'],
+['أجر الساعة الإضافية (ريال)','Overtime hour rate (SAR)'],
+['ساعات مشاوير','Trip hours'],
+['سعر الساعة','Hourly rate'],
+['التكلفة','Cost'],
+['لا توجد مشاوير بعد.','No trips yet.'],
+['تعذر تحميل المشاوير','Could not load trips'],
+['حذف هذا المشوار؟','Delete this trip?'],
+['إجمالي التكلفة: ','Total cost: '],
+['واتساب','WhatsApp'],
+['الأجر','Rate'],
 ];
 P.sort(function(a,b){return b[0].length-a[0].length});
 var AR='ء-ي';

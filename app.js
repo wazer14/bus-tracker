@@ -150,6 +150,7 @@ function driverLive(){
   $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
   <div class="pad"><div id="perm"></div><div id="trk"></div><div id="net"></div>
    <div class="card"><div id="shift"></div></div>
+   <div class="card" id="taskc" style="display:none"></div>
    <div class="stats"><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
    <div class="card" id="last"></div>
    <div class="note">${NATIVE?'يرسل التطبيق موقعك وبطارية جوالك للإدارة طوال الدوام، حتى لو كانت الشاشة مقفلة. التتبع يتوقف عند تسليم الباص.':'يرسل التطبيق موقعك وبطارية جوالك للإدارة أثناء فتحه. أبقِ التطبيق مفتوحًا وشاشة الجوال شغالة أثناء الدوام.'}</div></div>`;
@@ -212,7 +213,10 @@ function driverLive(){
   }
   window.__natStop=()=>{try{if(nat.id!=null)BG.removeWatcher({id:nat.id});nat.id=null}catch(_){}};
   const lastHtml=()=>`<b>آخر دوام مسجل</b>`+(st.lastList.length?st.lastList.map(x=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:14px"><span>${fdate(x.start_ts)} · ${esc(x.bus)}</span><span>${hm(x.end_ts-x.start_ts)} ${x.end_ts-x.start_ts>H8?`<b style="color:#dc2626">(+${hm(x.end_ts-x.start_ts-H8)})</b>`:''}</span></div>`).join(''):'<p style="color:#64748b;margin:8px 0 0;font-size:14px">لا يوجد بعد.</p>');
-  const apply=m=>{st.shift=m.shift;st.loaded=true;if(NATIVE)startNative();else if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;$('#last').innerHTML=lastHtml();renderShift()};
+  const apply=m=>{const wasLoaded=st.loaded;st.shift=m.shift;st.loaded=true;st.tasks=m.tasks||[];if(NATIVE)startNative();else if(watchId==null)startGeo();if(m.shift)keepAwake();else{wl?.release?.();wl=null;trkUi()}st.lastList=m.last||[];st.buses=m.buses||[];skew=m.now-Date.now();session.open=!!m.shift;$('#last').innerHTML=lastHtml();renderShift();renderTasks();
+    if(wasLoaded){const seen=jget('bt.task.seen.'+session.u,[]);const fresh=st.tasks.filter(t=>!t.start_ts&&!seen.includes(t.id));
+      if(fresh.length){jset('bt.task.seen.'+session.u,[...seen,...fresh.map(t=>t.id)].slice(-50));try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(_){}toast('عندك مشوار جديد: '+fresh[0].place);
+        if('Notification' in window&&Notification.permission==='granted'){try{new Notification('مشوار جديد',{body:fresh[0].place+(fresh[0].note?' — '+fresh[0].note:''),dir:'rtl',lang:'ar'})}catch(_){}}}}};
   const C=2*Math.PI*104;
   function renderShift(){
     const sh=st.shift;
@@ -233,12 +237,26 @@ function driverLive(){
       $('#out').onclick=async()=>{if(!confirm('تأكيد تسليم الباص وإنهاء الدوام؟'))return;const btn=$('#out');if(btn.disabled)return;btn.disabled=true;try{await send();const m=await api('/api/shift/end',{method:'POST'});wl?.release?.();apply(m);toast(m.ended.overtimeMs?'تم التسليم. وقت إضافي '+hm(m.ended.overtimeMs):'تم التسليم. شكرًا لك')}catch(e){btn.disabled=false;if(e.message==='no_open_shift'){try{apply(await api('/api/me'));toast('الدوام كان مقفلًا. تم التحديث')}catch(_){}}else if(e.message!=='unauth')toast(errMsg(e))}};
     }
   }
+  const renderTasks=()=>{const el=$('#taskc');if(!el)return;const ts=(st.tasks||[]).filter(t=>!t.end_ts);
+    if(!ts.length){el.style.display='none';el.innerHTML='';return}
+    el.style.display='';
+    el.innerHTML='<b>مشاوير مسندة إليك</b>'+ts.map(t=>{const active=!!t.start_ts;
+      return `<div style="border:1px solid ${active?'#6366f1':'#e2e8f0'};border-radius:12px;padding:10px;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><b>${esc(t.place)}</b><small style="color:${active?'#4f46e5':'#b45309'}">${active?'جاري':'جديد'}</small></div>
+      ${t.task_ts?`<small style="color:#64748b">${fdate(t.task_ts)} · ${ftime(t.task_ts)}</small>`:''}
+      ${t.note?`<div style="font-size:14px;color:#334155;margin-top:4px">${esc(t.note)}</div>`:''}
+      ${active?`<div style="font-size:22px;font-weight:800;text-align:center;margin:6px 0" id="tk-tm" data-s="${t.start_ts}">${hms(Date.now()+skew-t.start_ts)}</div>`:''}
+      <button class="btn ${active?'red':'gold'}" data-tk="${t.id}|${active?'end':'start'}">${active?'إنهاء المشوار':'بدء المشوار'}</button></div>`}).join('')
+    +(('Notification' in window&&Notification.permission==='default')?'<div style="margin-top:8px"><button class="btn sm ghost" id="ntf">تفعيل التنبيهات للمشاوير الجديدة</button></div>':'');
+    el.querySelectorAll('[data-tk]').forEach(b=>b.onclick=async()=>{if(b.disabled)return;b.disabled=true;const[id,op]=b.dataset.tk.split('|');try{apply(await api('/api/tasks/'+id+'/'+op,{method:'POST'}));toast(op==='start'?'بدأ المشوار. بالتوفيق':'تم إنهاء المشوار')}catch(e){b.disabled=false;if(e.message!=='unauth')toast(errMsg(e))}});
+    if($('#ntf'))$('#ntf').onclick=async()=>{try{await Notification.requestPermission()}catch(_){ }renderTasks()};
+  };
   const load=async()=>{try{apply(await api('/api/me'));st.net=true}catch(e){if(e.message==='unauth')return;st.net=false}netUi()};
   permUi();
   // ask once: only start the prompt flow if not already decided; a granted/denied state is read silently
   if(NATIVE){startNative()}else if(navigator.permissions&&navigator.permissions.query){navigator.permissions.query({name:'geolocation'}).then(r=>{if(r.state==='denied'){st.perm='denied';permUi()}else startGeo();r.onchange=()=>{if(r.state==='granted'){startGeo()}else if(r.state==='denied'){st.perm='denied';permUi()}}}).catch(startGeo)}else startGeo();
   load();
-  timers.push(setInterval(()=>{if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
+  timers.push(setInterval(()=>{const tk=$('#tk-tm');if(tk)tk.textContent=hms(Date.now()+skew-+tk.dataset.s);if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
   timers.push(setInterval(()=>{if(NATIVE)flush(false);else if(st.pos&&Date.now()-st.sent>12000)send()},4000));
   timers.push(setInterval(async()=>{try{const m=await api('/api/me');const had=!!st.shift;st.shift=m.shift;st.net=true;if(had!==!!m.shift)apply(m)}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
   document.onvisibilitychange=()=>{if(!document.hidden){wl=null;keepAwake();if(NATIVE){checkBat();flush(true)}else send()}};
@@ -340,30 +358,33 @@ function monthRows(m){
 }
 async function repTab(){
   let rows;
-  if(LIVE){try{const r=await api('/api/report?month='+month);rows=r.drivers.map(d=>({d:{u:d.u,name:d.name},l:d.shifts.map(x=>({u:d.u,bus:x.bus,start:x.start,end:x.end})),days:d.days,tot:d.totalMs,ot:d.overtimeMs,otDays:d.overtimeDays}))}catch(e){if(e.message==='unauth')return;$('#body').innerHTML='<div class="rep"><div class="banner bad">تعذر تحميل التقرير. '+esc(errMsg(e))+'</div></div>';return}}
+  if(LIVE){try{const r=await api('/api/report?month='+month);rows=r.drivers.map(d=>({d:{u:d.u,name:d.name},l:d.shifts.map(x=>({u:d.u,bus:x.bus,start:x.start,end:x.end})),days:d.days,tot:d.totalMs,ot:d.overtimeMs,otDays:d.overtimeDays,rate:d.rate||0,taskMs:d.taskMs||0,cost:d.cost||0,tasks:d.tasks||[]}))}catch(e){if(e.message==='unauth')return;$('#body').innerHTML='<div class="rep"><div class="banner bad">تعذر تحميل التقرير. '+esc(errMsg(e))+'</div></div>';return}}
   else rows=monthRows(month);
   $('#body').innerHTML=`<div class="rep"><div class="bar"><input type="month" id="mo" value="${month}"><button class="btn sm ghost" id="csv">تصدير CSV</button> <button class="btn sm ghost" id="pdf">تقرير PDF</button><span style="color:#64748b;font-size:13px">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه</span></div>
-  <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الساعات</th><th>ساعات إضافية</th><th>أيام فيها إضافي</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr class="clk" data-u="${r.d.u}"><td><b>${esc(r.d.name)}</b><br><small style="color:#64748b">${esc(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('')}
-  <tr style="background:#f1f5f9;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}</td><td>${rows.reduce((a,r)=>a+r.otDays,0)}</td></tr></tbody></table>
+  <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الساعات</th><th>ساعات إضافية</th><th>ساعات مشاوير</th><th>سعر الساعة</th><th>التكلفة</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr class="clk" data-u="${r.d.u}"><td><b>${esc(r.d.name)}</b><br><small style="color:#64748b">${esc(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.taskMs?hm(r.taskMs):'-'}</td><td>${r.rate?r.rate+' ريال':'-'}</td><td class="${r.cost?'ov':''}">${r.cost?r.cost+' ريال':'-'}</td></tr>`).join('')}
+  <tr style="background:#f1f5f9;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}</td><td>${hm(rows.reduce((a,r)=>a+(r.taskMs||0),0))}</td><td></td><td class="ov">${+rows.reduce((a,r)=>a+(r.cost||0),0).toFixed(2)} ريال</td></tr></tbody></table>
   <div class="note">بيانات الأشهر السابقة تجريبية. الدوام اللي يسجله سائق على هذا الجهاز يظهر هنا أيضًا. اضغط على اسم السائق لتفاصيل الأيام.</div></div>`;
   $('#mo').onchange=e=>{if(e.target.value){month=e.target.value;repTab()}};
-  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','total','overtime']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),hm(s.end-s.start),ot(s)?hm(ot(s)):'0'])));
+  $('#csv').onclick=()=>{const lines=[['driver','username','kind','date','bus_or_place','start','end','total','overtime','rate_sar_h','cost_sar']];
+    rows.forEach(r=>{r.l.forEach(s=>lines.push([r.d.name,r.d.u,'shift',new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),hm(s.end-s.start),ot(s)?hm(ot(s)):'0',r.rate,+(ot(s)/3600e3*r.rate).toFixed(2)]));
+      (r.tasks||[]).forEach(t=>lines.push([r.d.name,r.d.u,'task',new Date(t.start).toISOString().slice(0,10),t.place,ftime(t.start),ftime(t.end),hm(t.ms),hm(t.ms),r.rate,+(t.ms/3600e3*r.rate).toFixed(2)]))});
+    lines.push(['TOTAL','','','','','','','',hm(rows.reduce((a,r)=>a+r.ot+a+(r.taskMs||0),0)),'',+rows.reduce((a,r)=>a+(r.cost||0),0).toFixed(2)]);
     const csv='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='overtime-'+month+'.csv';a.click()};
   $('#pdf').onclick=()=>{const w=window.open('','_blank');if(!w){toast('اسمح بالنوافذ المنبثقة لفتح التقرير');return}
     const E=esc,tot=k=>rows.reduce((a,r)=>a+r[k],0);
-    const sum=rows.map(r=>`<tr><td>${E(r.d.name)}<br><small>${E(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('');
-    const det=rows.filter(r=>r.l.length).map(r=>`<h3>${E(r.d.name)}</h3><table><thead><tr><th>التاريخ</th><th>الباص</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${E(s.bus||'-')}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`).join('');
+    const sum=rows.map(r=>`<tr><td>${E(r.d.name)}<br><small>${E(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.taskMs?hm(r.taskMs):'-'}</td><td>${r.rate?r.rate+' ريال':'-'}</td><td class="${r.cost?'ov':''}">${r.cost?r.cost+' ريال':'-'}</td></tr>`).join('');
+    const det=rows.filter(r=>r.l.length||r.tasks.length).map(r=>`<h3>${E(r.d.name)}</h3>${r.l.length?`<table><thead><tr><th>التاريخ</th><th>الباص</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${E(s.bus||'-')}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:''}${r.tasks.length?`<table><thead><tr><th>التاريخ</th><th>المشوار</th><th>من</th><th>إلى</th><th>المدة</th><th>التكلفة</th></tr></thead><tbody>${r.tasks.map(t=>`<tr><td>${fdate(t.start)}</td><td>${E(t.place)}</td><td>${ftime(t.start)}</td><td>${ftime(t.end)}</td><td>${hm(t.ms)}</td><td class="ov">${+(t.ms/3600e3*r.rate).toFixed(2)} ريال</td></tr>`).join('')}</tbody></table>`:''}`).join('');
     w.document.write(TR(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الوقت الإضافي ${month}</title><style>
     body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#0f172a}h1{font-size:20px;margin:0 0 4px}h3{margin:20px 0 6px;font-size:15px}.s{color:#64748b;font-size:12px;margin-bottom:12px}
     table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:right}th{background:#e2e8f0}small{color:#64748b}.ov{color:#b42318;font-weight:700}tr{page-break-inside:avoid}
     .pb{margin-bottom:14px}@media print{.pb{display:none}}button{padding:8px 16px;font:inherit}</style></head><body>
     <div class="pb"><button onclick="window.print()">طباعة / حفظ كـ PDF</button></div>
     <h1>تقرير الوقت الإضافي · ${month}</h1><div class="s">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه · أُنشئ ${new Date().toLocaleString(LANGX==='en'?'en-GB':'ar-SA')}</div>
-    <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>أيام فيها إضافي</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#f1f5f9"><td>الإجمالي</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${tot('otDays')}</td></tr></tbody></table>${det}
+    <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>ساعات مشاوير</th><th>سعر الساعة</th><th>التكلفة</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#f1f5f9"><td>الإجمالي</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${hm(rows.reduce((a,r)=>a+(r.taskMs||0),0))}</td><td></td><td class="ov">${+rows.reduce((a,r)=>a+(r.cost||0),0).toFixed(2)} ريال</td></tr></tbody></table>${det}
     <script>setTimeout(function(){window.print()},500)<\/script></body></html>`).replace(/lang="ar" dir="rtl"/,LANGX==='en'?'lang="en" dir="ltr"':'lang="ar" dir="rtl"'));w.document.close()};
   document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>{const r=rows.find(x=>x.d.u===t.dataset.u);
-    $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
+    $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+(r.tasks&&r.tasks.length?`<h3 style="margin:14px 0 10px">مشاوير إضافية</h3><table><thead><tr><th>التاريخ</th><th>المشوار</th><th>من</th><th>إلى</th><th>المدة</th><th>التكلفة</th></tr></thead><tbody>${r.tasks.map(t=>`<tr><td>${fdate(t.start)}</td><td>${esc(t.place)}</td><td>${ftime(t.start)}</td><td>${ftime(t.end)}</td><td>${hm(t.ms)}</td><td class="ov">${+(t.ms/3600e3*r.rate).toFixed(2)} ريال</td></tr>`).join('')}</tbody></table>`:'')+(r.cost?`<p style="font-weight:800;margin-top:10px">إجمالي التكلفة: ${r.cost} ريال</p>`:'')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
     $('#dr').classList.add('on')});
 }
 
@@ -404,16 +425,30 @@ async function drvTab(){
    <label class="f">الجوال</label><input class="t" id="dp" inputmode="tel">
    <label class="f">الباص الافتراضي</label><input class="t" id="db" placeholder="B-101">
    <label class="f">كلمة المرور (8 أحرف على الأقل)</label><input class="t" id="dw" type="text" autocomplete="off">
-   <div class="err" id="de"></div><button class="btn gold" id="da">إضافة</button></div>`}
+   <label class="f">أجر الساعة الإضافية (ريال)</label><input class="t" id="dr" inputmode="decimal" placeholder="25">
+   <div class="err" id="de"></div><button class="btn gold" id="da">إضافة</button></div>
+  <div class="card" style="margin-top:14px"><b>إسناد مشوار إضافي</b>
+   <label class="f">السائق</label><select class="t" id="td">${list.filter(d=>d.active).map(d=>`<option value="${esc(d.u)}">${esc(d.name)}</option>`).join('')}</select>
+   <label class="f">المكان</label><input class="t" id="tp" style="direction:rtl">
+   <label class="f">وقت المشوار</label><input class="t" id="tt" type="datetime-local">
+   <label class="f">ملاحظة (اختياري)</label><input class="t" id="tn" style="direction:rtl">
+   <div class="err" id="te"></div><button class="btn gold" id="ta">إرسال للسائق</button></div>`}
    <h3 style="margin:18px 0 8px">السائقون (${list.length})</h3>
-   <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th>${viewer?'':'<th></th>'}</tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#64748b">${esc(d.u)} · ${esc(d.phone||'')}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}<br><small style="color:${cons[d.u]?'#16a34a':'#d97706'}">${cons[d.u]?'وافق على التتبع '+fdate(cons[d.u].ts):'لم يوافق على التتبع بعد'}</small></td>
-    ${viewer?'':`<td><button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td>`}</tr>`).join('')}</tbody></table></div>`;
-  if($('#da'))$('#da').onclick=async()=>{try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u:$('#du').value,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value}});
+   <table><thead><tr><th>السائق</th><th>الباص</th><th>الحالة</th>${viewer?'':'<th></th>'}</tr></thead><tbody>${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><small style="color:#64748b">${esc(d.u)} · ${esc(d.phone||'')}${d.ot_rate?' · '+d.ot_rate+' ريال/س':''}</small></td><td>${esc(d.bus||'-')}</td><td>${d.active?'مفعّل':'موقوف'}<br><small style="color:${cons[d.u]?'#16a34a':'#d97706'}">${cons[d.u]?'وافق على التتبع '+fdate(cons[d.u].ts):'لم يوافق على التتبع بعد'}</small></td>
+    ${viewer?'':`<td>${d.phone?`<a class="btn sm ghost" href="https://wa.me/${String(d.phone).replace(/\D/g,'').replace(/^0/,'966')}?text=${encodeURIComponent('مرحبًا '+d.name+'، معك إدارة النقل: ')}" target="_blank" rel="noopener">واتساب</a> `:''}<button class="btn sm ghost" data-rate="${esc(d.u)}|${d.ot_rate||0}">الأجر</button> <button class="btn sm ghost" data-pw="${esc(d.u)}">كلمة مرور جديدة</button> <button class="btn sm ghost" data-act="${esc(d.u)}|${d.active?0:1}">${d.active?'إيقاف':'تفعيل'}</button> <button class="btn sm ghost" style="color:#c0392b" data-del="${esc(d.u)}|${esc(d.name)}">حذف</button></td>`}</tr>`).join('')}</tbody></table>
+   <h3 style="margin:18px 0 8px">المشاوير الإضافية</h3><div id="tlist"><p style="color:#64748b;font-size:14px">جارٍ التحميل...</p></div></div>`;
+  if($('#da'))$('#da').onclick=async()=>{try{await api('/api/drivers',{method:'POST',body:{name:$('#dn').value,u:$('#du').value,phone:$('#dp').value,bus:$('#db').value,password:$('#dw').value,ot_rate:parseFloat($('#dr').value)||0}});
       const b=$('#db').value.trim();if(b)await api('/api/buses',{method:'POST',body:{id:b}}).catch(()=>{});toast('تمت إضافة السائق');drvTab()}catch(e){$('#de').textContent=e.code==='bad_request'?'تأكد: اسم المستخدم حروف إنجليزية وأرقام، وكلمة المرور 8 أحرف أو أكثر':errMsg(e)}};
   if($('#psb'))$('#psb').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:{pingSec:parseInt($('#ps2').value)}});$('#pse').textContent='';toast('تم الحفظ')}catch(e){$('#pse').textContent='القيمة من 5 إلى 300 ثانية'}};
   document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة لـ '+b.dataset.pw+' (8 أحرف على الأقل)');if(!p)return;try{await api('/api/drivers/'+b.dataset.pw,{method:'PATCH',body:{password:p}});toast('تم تغيير كلمة المرور')}catch(e){toast(errMsg(e))}});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const[u,n]=b.dataset.del.split('|');if(!confirm('حذف السائق '+n+' نهائيا؟ سيتم حذف بياناته وسجل دوامه ولا يمكن التراجع. (للإيقاف المؤقت استخدم إيقاف)'))return;if(!confirm('تأكيد أخير: حذف '+n+' نهائيا؟'))return;try{await api('/api/drivers/'+u,{method:'DELETE'});toast('تم حذف السائق');drvTab()}catch(e){toast(e.code==='shift_open'||e.message==='shift_open'?'السائق عنده دوام مفتوح، لازم يسلم الباص أولا':errMsg(e))}});
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const[u,a]=b.dataset.act.split('|');await api('/api/drivers/'+u,{method:'PATCH',body:{active:a==='1'}});drvTab()});
+  document.querySelectorAll('[data-rate]').forEach(b=>b.onclick=async()=>{const[u,cur]=b.dataset.rate.split('|');const p=prompt('أجر الساعة الإضافية (ريال) لـ '+u,cur==='0'?'':cur);if(p===null)return;try{await api('/api/drivers/'+u,{method:'PATCH',body:{ot_rate:parseFloat(p)||0}});toast('تم حفظ الأجر');drvTab()}catch(e){toast(errMsg(e))}});
+  if($('#ta'))$('#ta').onclick=async()=>{const btn=$('#ta');if(btn.disabled)return;btn.disabled=true;try{const ts=$('#tt').value?new Date($('#tt').value).getTime():null;await api('/api/tasks',{method:'POST',body:{driver:$('#td').value,place:$('#tp').value,note:$('#tn').value,ts}});toast('تم إرسال المشوار للسائق');drvTab()}catch(e){btn.disabled=false;$('#te').textContent=e.code==='bad_request'?'تأكد من السائق والمكان':errMsg(e)}};
+  try{const tr=await api('/api/tasks');const now=Date.now();
+    $('#tlist').innerHTML=tr.tasks.length?`<table><thead><tr><th>السائق</th><th>المكان</th><th>وقت المشوار</th><th>الحالة</th>${viewer?'':'<th></th>'}</tr></thead><tbody>${tr.tasks.slice(0,20).map(t=>`<tr><td>${esc(t.driver_name||t.driver_u)}</td><td>${esc(t.place)}${t.note?`<br><small style="color:#64748b">${esc(t.note)}</small>`:''}</td><td>${t.task_ts?fdate(t.task_ts)+' '+ftime(t.task_ts):'-'}</td><td>${t.end_ts?'منتهي · '+hm(t.end_ts-t.start_ts):t.start_ts?'جاري · '+hm(now-t.start_ts):'بانتظار السائق'}</td>${viewer?'':`<td><button class="btn sm ghost" style="color:#c0392b" data-tdel="${t.id}">حذف</button></td>`}</tr>`).join('')}</tbody></table>`:'<p style="color:#64748b;font-size:14px">لا توجد مشاوير بعد.</p>';
+    document.querySelectorAll('[data-tdel]').forEach(b=>b.onclick=async()=>{if(!confirm('حذف هذا المشوار؟'))return;try{await api('/api/tasks/'+b.dataset.tdel,{method:'DELETE'});toast('تم الحذف');drvTab()}catch(e){toast(errMsg(e))}});
+  }catch(e){if(e.message!=='unauth')$('#tlist').innerHTML='<p class="err">تعذر تحميل المشاوير</p>'}
 }
 
 

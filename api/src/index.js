@@ -116,13 +116,31 @@ async function shiftGuards(env){
   try{await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS shifts_open_bus ON shifts(bus) WHERE end_ts IS NULL').run()}catch(_){ }
   shiftGuardsOk=true;
 }
+// After-hours tasks (مشاوير): manager assigns, driver clocks them separately from the 8h shift.
+let migrated=false;
+async function migrate(env){
+  if(migrated)return;
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,driver_u TEXT NOT NULL,place TEXT NOT NULL,note TEXT,task_ts INTEGER,created_by TEXT,created_at INTEGER NOT NULL,start_ts INTEGER,end_ts INTEGER)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS tasks_d ON tasks(driver_u,start_ts)').run();
+  try{await env.DB.prepare('ALTER TABLE users ADD COLUMN ot_rate REAL').run()}catch(_){ }
+  migrated=true;
+}
+// Auto-close a task clock forgotten open (same 16h cap as shifts).
+async function closeStaleTasks(env,u){
+  const now=Date.now();
+  if(u)await env.DB.prepare('UPDATE tasks SET end_ts=start_ts+? WHERE driver_u=? AND start_ts IS NOT NULL AND end_ts IS NULL AND start_ts<?').bind(STALE_MS,u,now-STALE_MS).run();
+  else await env.DB.prepare('UPDATE tasks SET end_ts=start_ts+? WHERE start_ts IS NOT NULL AND end_ts IS NULL AND start_ts<?').bind(STALE_MS,now-STALE_MS).run();
+}
 async function meInfo(env,me){
   await closeStaleShifts(env,me.u);
+  await migrate(env);await closeStaleTasks(env,me.u);
   const u=await env.DB.prepare('SELECT u,name,phone,role,bus,sub FROM users WHERE u=?').bind(me.u).first();
   const shift=await env.DB.prepare('SELECT id,bus,start_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
   const last=await env.DB.prepare('SELECT bus,start_ts,end_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 5').bind(me.u).all();
   const buses=await env.DB.prepare('SELECT id,label FROM buses WHERE active=1 ORDER BY id').all();
-  return {user:u,shift,last:last.results,buses:buses.results,now:Date.now()};
+  let tasks=[];
+  if(me.role==='driver')tasks=(await env.DB.prepare('SELECT id,place,note,task_ts,created_at,start_ts,end_ts FROM tasks WHERE driver_u=? AND (end_ts IS NULL OR created_at>?) ORDER BY id DESC LIMIT 20').bind(me.u,Date.now()-7*864e5).all()).results;
+  return {user:u,shift,last:last.results,buses:buses.results,tasks,now:Date.now()};
 }
 async function fleet(env){
   await closeStaleShifts(env);
@@ -136,10 +154,14 @@ async function report(env,month){
   const [y,m]=month.split('-').map(Number);
   const tz=3*3600e3; // Asia/Riyadh, UTC+3 all year
   const from=Date.UTC(y,m-1,1)-tz,to=Date.UTC(y,m,1)-tz;
+  await migrate(env);
   const rows=await env.DB.prepare('SELECT u,bus,start_ts,end_ts,km,trips FROM shifts WHERE end_ts IS NOT NULL AND start_ts>=? AND start_ts<? ORDER BY start_ts').bind(from,to).all();
-  const users=await env.DB.prepare("SELECT u,name FROM users WHERE role='driver'").all();
+  const trows=await env.DB.prepare('SELECT driver_u u,place,note,start_ts,end_ts FROM tasks WHERE start_ts IS NOT NULL AND end_ts IS NOT NULL AND start_ts>=? AND start_ts<? ORDER BY start_ts').bind(from,to).all();
+  const users=await env.DB.prepare("SELECT u,name,ot_rate FROM users WHERE role='driver'").all();
   return {month,drivers:users.results.map(d=>{const l=rows.results.filter(s=>s.u===d.u).map(s=>({bus:s.bus,start:s.start_ts,end:s.end_ts,km:s.km,trips:s.trips,overtimeMs:Math.max(0,s.end_ts-s.start_ts-H8)}));
-    return {u:d.u,name:d.name,days:l.length,totalMs:l.reduce((a,s)=>a+s.end-s.start,0),overtimeMs:l.reduce((a,s)=>a+s.overtimeMs,0),overtimeDays:l.filter(s=>s.overtimeMs>0).length,km:l.reduce((a,s)=>a+s.km,0),shifts:l}})};
+    const tk=trows.results.filter(s=>s.u===d.u).map(s=>({place:s.place,note:s.note,start:s.start_ts,end:s.end_ts,ms:s.end_ts-s.start_ts}));
+    const overtimeMs=l.reduce((a,s)=>a+s.overtimeMs,0),taskMs=tk.reduce((a,s)=>a+s.ms,0),rate=d.ot_rate||0;
+    return {u:d.u,name:d.name,days:l.length,totalMs:l.reduce((a,s)=>a+s.end-s.start,0),overtimeMs,overtimeDays:l.filter(s=>s.overtimeMs>0).length,km:l.reduce((a,s)=>a+s.km,0),shifts:l,tasks:tk,taskMs,rate,cost:+(((overtimeMs+taskMs)/3600e3*rate).toFixed(2))}})};
 }
 export default {
   async fetch(req,env){
@@ -187,6 +209,42 @@ export default {
           return J({error:'no_open_shift'},409,H)}
         const end=Date.now();await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE id=?').bind(end,sh.id).run();
         return J({...(await meInfo(env,me)),ended:{start_ts:sh.start_ts,end_ts:end,overtimeMs:Math.max(0,end-sh.start_ts-H8)}},200,H);
+      }
+      if(path==='/api/tasks'&&req.method==='POST'){
+        if(me.role!=='admin')return J({error:'forbidden'},403,H);
+        await migrate(env);
+        const b=await req.json().catch(()=>({}));const driver=str(b.driver,40)?.toLowerCase(),place=str(b.place,120),note=str(b.note,300),ts=Number(b.ts)||null;
+        if(!driver||!place)return J({error:'bad_request'},400,H);
+        const d=await env.DB.prepare("SELECT 1 FROM users WHERE u=? AND role='driver' AND active=1").bind(driver).first();if(!d)return J({error:'driver_not_found'},404,H);
+        const r=await env.DB.prepare('INSERT INTO tasks(driver_u,place,note,task_ts,created_by,created_at) VALUES(?,?,?,?,?,?)').bind(driver,place,note,ts,me.u,Date.now()).run();
+        return J({ok:true,id:r.meta?.last_row_id},201,H);
+      }
+      if(path==='/api/tasks'&&req.method==='GET'){
+        if(me.role!=='admin')return J({error:'forbidden'},403,H);
+        await migrate(env);await closeStaleTasks(env);
+        const rows=await env.DB.prepare('SELECT t.*,u.name driver_name FROM tasks t LEFT JOIN users u ON u.u=t.driver_u ORDER BY t.id DESC LIMIT 100').all();
+        return J({tasks:rows.results},200,H);
+      }
+      const mt=path.match(/^\/api\/tasks\/(\d+)(?:\/(start|end))?$/);
+      if(mt&&req.method==='POST'&&mt[2]){
+        if(me.role!=='driver')return J({error:'forbidden'},403,H);
+        await migrate(env);await closeStaleTasks(env,me.u);
+        const t=await env.DB.prepare('SELECT * FROM tasks WHERE id=? AND driver_u=?').bind(+mt[1],me.u).first();
+        if(!t)return J({error:'not_found'},404,H);
+        if(mt[2]==='start'){
+          if(t.start_ts)return J({error:'task_already_started'},409,H);
+          const act=await env.DB.prepare('SELECT id FROM tasks WHERE driver_u=? AND start_ts IS NOT NULL AND end_ts IS NULL').bind(me.u).first();
+          if(act)return J({error:'task_already_active'},409,H);
+          await env.DB.prepare('UPDATE tasks SET start_ts=? WHERE id=?').bind(Date.now(),t.id).run();
+        }else{
+          if(!t.start_ts||t.end_ts)return J({error:'task_not_active'},409,H);
+          await env.DB.prepare('UPDATE tasks SET end_ts=? WHERE id=?').bind(Date.now(),t.id).run();
+        }
+        return J(await meInfo(env,me),200,H);
+      }
+      if(mt&&req.method==='DELETE'&&!mt[2]){
+        if(me.role!=='admin')return J({error:'forbidden'},403,H);
+        await env.DB.prepare('DELETE FROM tasks WHERE id=?').bind(+mt[1]).run();return J({ok:true},200,H);
       }
       if(path==='/api/me/password'&&req.method==='POST'){
         if(me.role!=='admin')return J({error:'forbidden'},403,H);
@@ -250,22 +308,26 @@ export default {
       }
       if(path==='/api/fleet'&&req.method==='GET')return J(await fleet(env),200,H);
       if(path==='/api/report'&&req.method==='GET'){const r=await report(env,url.searchParams.get('month')||'');return r?J(r,200,H):J({error:'bad_month'},400,H)}
-      if(path==='/api/drivers'&&req.method==='GET')return J((await env.DB.prepare("SELECT u,name,phone,bus,active FROM users WHERE role='driver' ORDER BY name").all()).results,200,H);
+      if(path==='/api/drivers'&&req.method==='GET'){await migrate(env);return J((await env.DB.prepare("SELECT u,name,phone,bus,active,ot_rate FROM users WHERE role='driver' ORDER BY name").all()).results,200,H)}
       if(path==='/api/drivers'&&req.method==='POST'){
+        await migrate(env);
         const b=await req.json().catch(()=>({}));const u=str(b.u,40)?.toLowerCase(),name=str(b.name,80),pw=typeof b.password==='string'?b.password:'';
         if(!u||!/^[a-z0-9._-]+$/.test(u)||!name||pw.length<8)return J({error:'bad_request',hint:'username a-z0-9._-, name, password >= 8 chars'},400,H);
         const salt=newSalt();
-        try{await env.DB.prepare("INSERT INTO users(u,name,phone,role,pw_hash,pw_salt,bus,created_at) VALUES(?,?,?, 'driver',?,?,?,?)").bind(u,name,str(b.phone,20),await hashPw(pw,salt),salt,str(b.bus,40),Date.now()).run()}catch(_){return J({error:'username_taken'},409,H)}
+        const rate=num(b.ot_rate,0,10000);
+        try{await env.DB.prepare("INSERT INTO users(u,name,phone,role,pw_hash,pw_salt,bus,created_at,ot_rate) VALUES(?,?,?, 'driver',?,?,?,?,?)").bind(u,name,str(b.phone,20),await hashPw(pw,salt),salt,str(b.bus,40),Date.now(),rate).run()}catch(_){return J({error:'username_taken'},409,H)}
         return J({ok:true},201,H);
       }
       const m=path.match(/^\/api\/drivers\/([a-z0-9._-]+)$/);
       if(m&&req.method==='PATCH'){
+        await migrate(env);
         const b=await req.json().catch(()=>({}));const u=m[1];
         if(typeof b.password==='string'){if(b.password.length<8)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare("UPDATE users SET pw_hash=?,pw_salt=? WHERE u=? AND role='driver'").bind(await hashPw(b.password,salt),salt,u).run()}
         if(b.name!==undefined&&str(b.name,80))await env.DB.prepare("UPDATE users SET name=? WHERE u=? AND role='driver'").bind(str(b.name,80),u).run();
         if(b.phone!==undefined)await env.DB.prepare("UPDATE users SET phone=? WHERE u=? AND role='driver'").bind(str(b.phone,20),u).run();
         if(b.bus!==undefined)await env.DB.prepare("UPDATE users SET bus=? WHERE u=? AND role='driver'").bind(str(b.bus,40),u).run();
         if(b.active!==undefined)await env.DB.prepare("UPDATE users SET active=? WHERE u=? AND role='driver'").bind(b.active?1:0,u).run();
+        if(b.ot_rate!==undefined)await env.DB.prepare("UPDATE users SET ot_rate=? WHERE u=? AND role='driver'").bind(num(b.ot_rate,0,10000),u).run();
         return J({ok:true},200,H);
       }
       if(m&&req.method==='DELETE'){

@@ -93,4 +93,26 @@ r=await call('POST','/api/shift/start',{bus:'B-1'},D2);t('shift for dup test',r.
 let threw=false;try{db.prepare("INSERT INTO shifts(u,bus,start_ts) VALUES('d1','B-2',?)").run(Date.now())}catch(e){threw=true}
 t('unique open-shift index rejects duplicate',threw===true);
 r=await call('POST','/api/shift/end',null,D2);t('cleanup end',r.s===200);
+// --- after-hours tasks + overtime rate/cost ---
+r=await call('PATCH','/api/drivers/d1',{ot_rate:25.5},A);t('set hourly rate',r.s===200);
+r=await call('GET','/api/drivers',null,A);t('rate in drivers list',Math.abs((r.b.find(x=>x.u==='d1')||{}).ot_rate-25.5)<1e-9);
+r=await call('POST','/api/tasks',{driver:'d1',place:'حي النرجس',note:'توصيل عمال',ts:Date.now()+3600e3},A);t('admin creates task',r.s===201);const TID=db.prepare('SELECT MAX(id) id FROM tasks').get().id;
+r=await call('POST','/api/tasks',{driver:'ghost',place:'x'},A);t('task for unknown driver 404',r.s===404);
+r=await call('POST','/api/tasks',{driver:'d1'},A);t('task without place 400',r.s===400);
+r=await call('GET','/api/me',null,D2);t('driver sees pending task',r.s===200&&r.b.tasks.some(x=>x.id===TID&&!x.start_ts));
+r=await call('POST','/api/tasks/'+TID+'/start',null,A);t('admin cannot clock task',r.s===403);
+r=await call('POST','/api/tasks/'+TID+'/start',null,D2);t('driver starts task clock',r.s===200&&r.b.tasks.find(x=>x.id===TID).start_ts);
+r=await call('POST','/api/tasks/'+TID+'/start',null,D2);t('double task start 409',r.s===409);
+r=await call('POST','/api/tasks',{driver:'d1',place:'مكان ثاني'},A);const TID2=db.prepare('SELECT MAX(id) id FROM tasks').get().id;
+r=await call('POST','/api/tasks/'+TID2+'/start',null,D2);t('second active task 409',r.s===409);
+r=await call('POST','/api/tasks/'+TID2+'/end',null,D2);t('end before start 409',r.s===409);
+db.prepare('UPDATE tasks SET start_ts=start_ts-? WHERE id=?').run(3*3600e3,TID); // 3h task
+r=await call('POST','/api/tasks/'+TID+'/end',null,D2);t('driver ends task',r.s===200&&!r.b.tasks.find(x=>x.id===TID).end_ts===false);
+r=await call('GET','/api/report?month='+mo,null,A);const RD=r.b.drivers.find(x=>x.u==='d1');
+t('report has task hours + cost',RD&&Math.abs(RD.taskMs-3*3600e3)<5000&&RD.cost===+(((RD.overtimeMs+RD.taskMs)/3600e3*25.5).toFixed(2))&&RD.rate===25.5);
+r=await call('GET','/api/tasks',null,A);t('admin lists tasks',r.s===200&&r.b.tasks.some(x=>x.id===TID&&x.driver_name));
+r=await call('POST','/api/tasks/'+TID2+'/start',null,D2);db.prepare('UPDATE tasks SET start_ts=start_ts-? WHERE id=?').run(20*3600e3,TID2);
+r=await call('GET','/api/me',null,D2);const st2=r.b.tasks.find(x=>x.id===TID2);t('stale task clock auto-closed',st2&&st2.end_ts-st2.start_ts===16*3600e3);
+r=await call('DELETE','/api/tasks/'+TID2,null,A);t('admin deletes task',r.s===200);
+r=await call('POST','/api/tasks',{driver:'d1',place:'x'},V&&V);t('viewer cannot create task (403 or 401)',r.s===403||r.s===401);
 process.exit(ok?0:1);
