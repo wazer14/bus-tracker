@@ -41,17 +41,17 @@ const unorm=v=>String(v||'').normalize('NFKC').replace(/[٠-٩]/g,c=>'٠١٢٣٤
 async function bioOffer(u,p){
   if(!BIO||LS.getItem('bt.bio.no')==='1')return;
   try{const h=await BIO.has();if(h&&h.ok)return;const av=await BIO.available();if(!av||!av.ok)return;
-    if(!confirm('تفعيل الدخول بالبصمة على هذا الجهاز؟\nبتفتح التطبيق بعدها ببصمتك بدون كتابة اسم المستخدم وكلمة المرور.')){LS.setItem('bt.bio.no','1');return}
-    await BIO.save({u,p});toast('تم تفعيل الدخول بالبصمة')}catch(_){}}
+    if(!confirm(LANGX==='en'?'Enable fingerprint sign-in on this device?\nYou will open the app with your fingerprint instead of typing your username and password.':'تفعيل الدخول بالبصمة على هذا الجهاز؟\nبتفتح التطبيق بعدها ببصمتك بدون كتابة اسم المستخدم وكلمة المرور.')){LS.setItem('bt.bio.no','1');return}
+    await BIO.save({u,p});toast(LANGX==='en'?'Fingerprint sign-in enabled':'تم تفعيل الدخول بالبصمة')}catch(_){}}
 async function bioGate(){
   if(!BIO)return;
   let h=null;try{h=await BIO.has()}catch(_){}
   if(!h||!h.ok)return;
-  $('#lf').insertAdjacentHTML('beforeend','<button type="button" class="btn gold" id="bio" style="width:100%;margin-top:10px">🔓 دخول بالبصمة</button><button type="button" class="btn sm ghost" id="biooff" style="width:100%;margin-top:8px">إيقاف الدخول بالبصمة على هذا الجهاز</button>');
-  $('#biooff').onclick=async()=>{try{await BIO.clear()}catch(_){}LS.setItem('bt.bio.no','1');toast('تم إيقاف الدخول بالبصمة');const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()};
-  const go=async()=>{let c;try{c=await BIO.unlock()}catch(e){if(!e||e.message!=='cancelled')$('#er').textContent='تعذر استخدام البصمة. سجّل بكلمة المرور.';return}
+  $('#lf').insertAdjacentHTML('beforeend','<button type="button" class="btn gold" id="bio" style="width:100%;margin-top:10px">'+(LANGX==='en'?'🔓 Sign in with fingerprint':'🔓 دخول بالبصمة')+'</button><button type="button" class="btn sm ghost" id="biooff" style="width:100%;margin-top:8px">'+(LANGX==='en'?'Turn off fingerprint sign-in on this device':'إيقاف الدخول بالبصمة على هذا الجهاز')+'</button>');
+  $('#biooff').onclick=async()=>{try{await BIO.clear()}catch(_){}LS.setItem('bt.bio.no','1');toast(LANGX==='en'?'Fingerprint sign-in turned off':'تم إيقاف الدخول بالبصمة');const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()};
+  const go=async()=>{let c;try{c=await BIO.unlock({lang:LANGX})}catch(e){if(!e||e.message!=='cancelled')$('#er').textContent=LANGX==='en'?'Fingerprint unavailable. Sign in with your password.':'تعذر استخدام البصمة. سجّل بكلمة المرور.';return}
     try{const r=await api('/api/login',{method:'POST',body:{u:c.u,p:c.p}});session={u:r.user.u,role:r.user.role,token:r.token,name:r.user.name,bus:r.user.bus,sub:r.user.sub};jset('bt.session',session);route()}
-    catch(e){if(e.code==='invalid_credentials'){try{await BIO.clear()}catch(_){}$('#er').textContent='كلمة المرور اتغيّرت. سجّل يدويًا ثم أعد تفعيل البصمة.';const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()}else $('#er').textContent=errMsg(e)}};
+    catch(e){if(e.code==='invalid_credentials'){try{await BIO.clear()}catch(_){}$('#er').textContent=LANGX==='en'?'Password changed. Sign in manually, then re-enable fingerprint.':'كلمة المرور اتغيّرت. سجّل يدويًا ثم أعد تفعيل البصمة.';const b=$('#bio');b&&b.remove();const o=$('#biooff');o&&o.remove()}else $('#er').textContent=errMsg(e)}};
   $('#bio').onclick=go;go();
 }
 let session=jget('bt.session',null),timers=[],watchId=null,map=null;

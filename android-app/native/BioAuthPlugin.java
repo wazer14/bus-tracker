@@ -79,6 +79,7 @@ public class BioAuthPlugin extends Plugin {
 
     @PluginMethod
     public void unlock(final PluginCall call) {
+        final boolean en = "en".equals(call.getString("lang"));
         getActivity().runOnUiThread(() -> {
             BiometricPrompt prompt = new BiometricPrompt(getActivity(),
                     ContextCompat.getMainExecutor(getContext()),
@@ -106,8 +107,8 @@ public class BioAuthPlugin extends Plugin {
                     });
             BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
                     .setTitle("BusPulse")
-                    .setSubtitle("تسجيل الدخول بالبصمة")
-                    .setNegativeButtonText("إلغاء")
+                    .setSubtitle(en ? "Sign in with fingerprint" : "تسجيل الدخول بالبصمة")
+                    .setNegativeButtonText(en ? "Cancel" : "إلغاء")
                     .build();
             prompt.authenticate(info);
         });
