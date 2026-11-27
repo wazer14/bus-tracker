@@ -182,7 +182,23 @@ var P=[
 ['السائق عنده دوام مفتوح، لازم يسلم الباص أولا','This driver has an open shift. They must hand over the bus first'],
 ['حذف','Delete'],
 ['السائقين','Drivers'],
-['تقرير الوقت الإضافي','Overtime report']
+['تقرير الوقت الإضافي','Overtime report'],
+['المستخدمون الإداريون','Admin users'],
+['أنشئ حسابات إدارة إضافية واختر صلاحية كل حساب.','Create additional admin accounts and choose each one\'s permission level.'],
+['إضافة مستخدم إداري','Add an admin user'],
+['الصلاحية','Permission'],
+['مدير تشغيل — يدير السائقين والإعدادات','Operations manager — manages drivers and settings'],
+['مدير عام — عرض فقط بدون أي تغيير','General manager — view only, no changes'],
+['مدير عام (عرض فقط)','General manager (view only)'],
+['مدير كامل','Full admin'],
+['إلى مدير تشغيل','Make operations mgr'],
+['إلى عرض فقط','Make view only'],
+['تمت إضافة المستخدم','User added'],
+['تم حذف المستخدم','User deleted'],
+['تم تغيير الصلاحية','Permission level changed'],
+['حذف المستخدم الإداري ','Delete the admin user '],
+['وضع العرض فقط — يمكنك الاطلاع على كل شيء بدون إجراء تغييرات.','View-only mode: you can see everything but cannot change anything.'],
+['المستخدم','User']
 ];
 P.sort(function(a,b){return b[0].length-a[0].length});
 var AR='ء-ي';

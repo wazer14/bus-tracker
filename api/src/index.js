@@ -130,6 +130,7 @@ export default {
       const live=await env.DB.prepare('SELECT active,role,sub FROM users WHERE u=?').bind(me.u).first();
       if(!live||!live.active)return J({error:'unauthorized'},401,H);
       me.role=live.role;me.sub=live.sub;
+      if(me.sub==='viewer'&&req.method!=='GET'&&path!=='/api/me/password')return J({error:'forbidden'},403,H); // view-only tier
       const adminOnly=()=>me.role==='admin'?null:J({error:'forbidden'},403,H);
       if(path==='/api/me'&&req.method==='GET')return J(await meInfo(env,me),200,H);
       if(path==='/api/positions'&&req.method==='POST')return me.role==='driver'?await positionsBatch(env,me,req,H):J({error:'forbidden'},403,H);
@@ -186,6 +187,34 @@ export default {
       if(path==='/api/manager'&&req.method==='DELETE'){
         if(me.sub)return J({error:'forbidden'},403,H);
         await env.DB.prepare("DELETE FROM users WHERE sub='manager'").run();return J({ok:true},200,H);
+      }
+      if(path==='/api/admins'&&req.method==='GET'){
+        if(me.sub)return J({error:'forbidden'},403,H);
+        return J({admins:(await env.DB.prepare("SELECT u,name,sub,active,created_at FROM users WHERE role='admin' ORDER BY created_at").all()).results},200,H);
+      }
+      if(path==='/api/admins'&&req.method==='POST'){
+        if(me.sub)return J({error:'forbidden'},403,H);
+        const b=await req.json().catch(()=>({}));const u=str(b.u,40)?.toLowerCase(),name=str(b.name,80),pw=typeof b.password==='string'?b.password:'';
+        const level=b.level==='viewer'?'viewer':'manager';
+        if(!u||!/^[a-z0-9._-]+$/.test(u)||u==='admin'||!name||pw.length<8)return J({error:'bad_request'},400,H);
+        if(await env.DB.prepare('SELECT 1 FROM users WHERE u=?').bind(u).first())return J({error:'exists'},409,H);
+        const salt=newSalt();await env.DB.prepare("INSERT INTO users(u,name,role,sub,pw_hash,pw_salt,created_at) VALUES(?,?,'admin',?,?,?,?)").bind(u,name,level,await hashPw(pw,salt),salt,Date.now()).run();
+        return J({ok:true,created:true},201,H);
+      }
+      const ma=path.match(/^\/api\/admins\/([a-z0-9._-]+)$/);
+      if(ma&&(req.method==='PATCH'||req.method==='DELETE')){
+        if(me.sub)return J({error:'forbidden'},403,H);
+        const u=ma[1];
+        const row=await env.DB.prepare("SELECT u FROM users WHERE u=? AND role='admin'").bind(u).first();
+        if(!row)return J({error:'not_found'},404,H);
+        if(u==='admin'||u===me.u)return J({error:'protected'},400,H);
+        if(req.method==='DELETE'){await env.DB.prepare("DELETE FROM users WHERE u=? AND role='admin'").bind(u).run();return J({ok:true},200,H)}
+        const b=await req.json().catch(()=>({}));
+        if(typeof b.password==='string'&&b.password){if(b.password.length<8)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare('UPDATE users SET pw_hash=?,pw_salt=? WHERE u=?').bind(await hashPw(b.password,salt),salt,u).run()}
+        if(b.name!==undefined&&str(b.name,80))await env.DB.prepare('UPDATE users SET name=? WHERE u=?').bind(str(b.name,80),u).run();
+        if(b.active!==undefined)await env.DB.prepare('UPDATE users SET active=? WHERE u=?').bind(b.active?1:0,u).run();
+        if(b.level==='manager'||b.level==='viewer')await env.DB.prepare('UPDATE users SET sub=? WHERE u=?').bind(b.level,u).run();
+        return J({ok:true},200,H);
       }
       if(path==='/api/fleet'&&req.method==='GET')return J(await fleet(env),200,H);
       if(path==='/api/report'&&req.method==='GET'){const r=await report(env,url.searchParams.get('month')||'');return r?J(r,200,H):J({error:'bad_month'},400,H)}
