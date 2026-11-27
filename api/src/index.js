@@ -307,6 +307,7 @@ export default {
       }
       if(path==='/api/buses'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const id=str(b.id,40);if(!id)return J({error:'bad_request'},400,H);await env.DB.prepare('INSERT OR REPLACE INTO buses(id,label,active) VALUES(?,?,1)').bind(id,str(b.label,80)).run();return J({ok:true},201,H)}
       if(path==='/api/push/register'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const token=str(b.token,400);if(!token)return J({error:'bad_request'},400,H);await ensureTables(env);await env.DB.prepare('INSERT INTO push_tokens(u,token,platform,ts) VALUES(?,?,?,?) ON CONFLICT(u) DO UPDATE SET token=excluded.token,platform=excluded.platform,ts=excluded.ts').bind(me.u,token,str(b.platform,20)||null,Date.now()).run();return J({ok:true},201,H)}
+      if(path==='/api/push/register'&&req.method==='DELETE'){await ensureTables(env);await env.DB.prepare('DELETE FROM push_tokens WHERE u=?').bind(me.u).run();return J({ok:true},200,H)}
       if(path==='/api/push/send'&&req.method==='POST'){const e=adminOnly();if(e)return e;await ensureTables(env);const b=await req.json().catch(()=>({}));const title=str(b.title,120),body=str(b.body,400);if(!title||!body)return J({error:'bad_request'},400,H);try{return J(await sendPush(env,b.u?str(b.u,60):null,title,body),200,H)}catch(err){return J({error:String(err.message||'push_failed')},502,H)}}
       return J({error:'not_found'},404,H);
     }catch(e){return J({error:'server_error'},500,H)}
