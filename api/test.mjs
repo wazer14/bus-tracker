@@ -74,4 +74,23 @@ r=await call('POST','/api/drivers',{u:'d3',name:'Three',password:'longenough3'},
 r=await call('PATCH','/api/admins/admin',{active:false},A);t('bootstrap admin protected',r.s===400);
 r=await call('DELETE','/api/admins/gm',null,A);t('delete gm',r.s===200);
 r=await call('POST','/api/login',{u:'gm',p:'gmnewpass12'});t('deleted gm cannot login',r.s===401);
+// --- stale shift auto-close + handover hardening ---
+db.prepare("DELETE FROM login_fail WHERE k LIKE 'd1|%'").run(); // clear the lockout test's rate limit
+r=await call('POST','/api/login',{u:'d1',p:'longenough1'});const D2=r.b.token;
+r=await call('POST','/api/shift/start',{bus:'B-1'},D2);t('restart shift',r.s===200&&r.b.shift);
+db.prepare('UPDATE shifts SET start_ts=start_ts-? WHERE end_ts IS NULL').run(20*3600e3); // 20h ago = forgotten
+r=await call('GET','/api/me',null,D2);t('stale shift auto-closed on /api/me',r.s===200&&!r.b.shift);
+const stale=db.prepare('SELECT start_ts,end_ts FROM shifts WHERE u=? ORDER BY id DESC LIMIT 1').get('d1');
+t('stale end capped at start+16h',stale.end_ts-stale.start_ts===16*3600e3);
+r=await call('GET','/api/fleet',null,A);t('fleet shows no open shift for d1',r.s===200&&!r.b.drivers.find(x=>x.u==='d1').onShift);
+r=await call('POST','/api/shift/start',{bus:'B-1'},D2);t('fresh shift after auto-close',r.s===200&&r.b.shift);
+r=await call('POST','/api/shift/end',null,D2);t('handover ok',r.s===200);
+r=await call('POST','/api/shift/end',null,D2);t('repeated handover idempotent (no error)',r.s===200&&r.b.alreadyEnded===true);
+r=await call('POST','/api/shift/end',null,D2);t('third handover still idempotent',r.s===200);
+db.prepare('UPDATE shifts SET end_ts=end_ts-? WHERE u=?').run(10*60e3,'d1'); // last end 10 min ago
+r=await call('POST','/api/shift/end',null,D2);t('old closed shift is not idempotent',r.s===409&&r.b.error==='no_open_shift');
+r=await call('POST','/api/shift/start',{bus:'B-1'},D2);t('shift for dup test',r.s===200);
+let threw=false;try{db.prepare("INSERT INTO shifts(u,bus,start_ts) VALUES('d1','B-2',?)").run(Date.now())}catch(e){threw=true}
+t('unique open-shift index rejects duplicate',threw===true);
+r=await call('POST','/api/shift/end',null,D2);t('cleanup end',r.s===200);
 process.exit(ok?0:1);

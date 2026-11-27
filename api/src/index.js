@@ -1,5 +1,6 @@
 // Bus Tracker API: Cloudflare Worker + D1. No secrets in code: JWT_SECRET and ADMIN_PASSWORD are Worker secrets.
 const H8=8*3600e3, ONLINE_MS=120e3, MOVE_KMH=4, ITER=100000;
+const STALE_MS=16*3600e3; // an open shift older than this is auto-closed (forgotten handover)
 const enc=new TextEncoder();
 const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
@@ -94,7 +95,29 @@ async function positionsBatch(env,me,req,H){
    .bind(me.u,pl.lat,pl.lon,speed,acc,bat,pl.ts,pl.moving,still,pl.lat,pl.lon,speed,acc,bat,pl.ts,pl.moving,still).run();
   return J({ok:true,used,ts:pl.ts},200,H);
 }
+// Auto-close forgotten open shifts (driver closed the app without handing over).
+// end_ts is capped at start+STALE_MS so reports never count days of fake overtime.
+async function closeStaleShifts(env,u){
+  const now=Date.now();
+  if(u)await env.DB.prepare('UPDATE shifts SET end_ts=start_ts+? WHERE u=? AND end_ts IS NULL AND start_ts<?').bind(STALE_MS,u,now-STALE_MS).run();
+  else await env.DB.prepare('UPDATE shifts SET end_ts=start_ts+? WHERE end_ts IS NULL AND start_ts<?').bind(STALE_MS,now-STALE_MS).run();
+}
+// One-time guards: close duplicate open shifts (keep newest per user and per bus), then
+// unique partial indexes make a second open shift per user or per bus impossible at the DB level,
+// so two commands racing at the same moment can never create conflicting states.
+let shiftGuardsOk=false;
+async function shiftGuards(env){
+  if(shiftGuardsOk)return;
+  const now=Date.now();
+  await closeStaleShifts(env);
+  await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE end_ts IS NULL AND id<(SELECT MAX(id) FROM shifts s2 WHERE s2.u=shifts.u AND s2.end_ts IS NULL)').bind(now).run();
+  await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE end_ts IS NULL AND id<(SELECT MAX(id) FROM shifts s2 WHERE s2.bus=shifts.bus AND s2.end_ts IS NULL)').bind(now).run();
+  try{await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS shifts_open_u ON shifts(u) WHERE end_ts IS NULL').run()}catch(_){ }
+  try{await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS shifts_open_bus ON shifts(bus) WHERE end_ts IS NULL').run()}catch(_){ }
+  shiftGuardsOk=true;
+}
 async function meInfo(env,me){
+  await closeStaleShifts(env,me.u);
   const u=await env.DB.prepare('SELECT u,name,phone,role,bus,sub FROM users WHERE u=?').bind(me.u).first();
   const shift=await env.DB.prepare('SELECT id,bus,start_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
   const last=await env.DB.prepare('SELECT bus,start_ts,end_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 5').bind(me.u).all();
@@ -102,6 +125,7 @@ async function meInfo(env,me){
   return {user:u,shift,last:last.results,buses:buses.results,now:Date.now()};
 }
 async function fleet(env){
+  await closeStaleShifts(env);
   const now=Date.now();
   const rows=await env.DB.prepare(`SELECT u.u,u.name,u.phone,u.bus,p.lat,p.lon,p.speed,p.bat,p.ts,p.moving,s.id sid,s.bus sbus,s.start_ts,s.km,s.trips
    FROM users u LEFT JOIN positions p ON p.u=u.u LEFT JOIN shifts s ON s.u=u.u AND s.end_ts IS NULL WHERE u.role='driver' AND u.active=1 ORDER BY u.name`).all();
@@ -145,14 +169,22 @@ export default {
       if(path==='/api/shift/start'&&req.method==='POST'){
         if(me.role!=='driver')return J({error:'forbidden'},403,H);
         const b=await req.json().catch(()=>({}));const bus=str(b.bus,40);if(!bus)return J({error:'bus_required'},400,H);
+        await shiftGuards(env);await closeStaleShifts(env);
         const open=await env.DB.prepare('SELECT id FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();if(open)return J({error:'shift_already_open'},409,H);
         const busy=await env.DB.prepare('SELECT u FROM shifts WHERE bus=? AND end_ts IS NULL').bind(bus).first();if(busy)return J({error:'bus_in_use'},409,H);
-        await env.DB.prepare('INSERT INTO shifts(u,bus,start_ts) VALUES(?,?,?)').bind(me.u,bus,Date.now()).run();
+        try{await env.DB.prepare('INSERT INTO shifts(u,bus,start_ts) VALUES(?,?,?)').bind(me.u,bus,Date.now()).run()}
+        catch(_){// lost a race: the unique index rejected a simultaneous double command
+          const o2=await env.DB.prepare('SELECT id FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
+          return J({error:o2?'shift_already_open':'bus_in_use'},409,H)}
         return J(await meInfo(env,me),200,H);
       }
       if(path==='/api/shift/end'&&req.method==='POST'){
         if(me.role!=='driver')return J({error:'forbidden'},403,H);
-        const sh=await env.DB.prepare('SELECT * FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();if(!sh)return J({error:'no_open_shift'},409,H);
+        const sh=await env.DB.prepare('SELECT * FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
+        if(!sh){// idempotent: a repeated handover (double tap, retry) returns the same success instead of an error
+          const recent=await env.DB.prepare('SELECT * FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY end_ts DESC LIMIT 1').bind(me.u).first();
+          if(recent&&Date.now()-recent.end_ts<120e3)return J({...(await meInfo(env,me)),ended:{start_ts:recent.start_ts,end_ts:recent.end_ts,overtimeMs:Math.max(0,recent.end_ts-recent.start_ts-H8)},alreadyEnded:true},200,H);
+          return J({error:'no_open_shift'},409,H)}
         const end=Date.now();await env.DB.prepare('UPDATE shifts SET end_ts=? WHERE id=?').bind(end,sh.id).run();
         return J({...(await meInfo(env,me)),ended:{start_ts:sh.start_ts,end_ts:end,overtimeMs:Math.max(0,end-sh.start_ts-H8)}},200,H);
       }

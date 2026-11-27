@@ -22,7 +22,7 @@ async function api(path,opt={}){
   if(r.status===401&&session&&path!=='/api/login'){LS.removeItem('bt.session');session=null;loginView('انتهت الجلسة. سجّل دخولك من جديد');throw new Error('unauth')}
   if(!r.ok)throw Object.assign(new Error(j.error||'error'),{code:j.error,status:r.status});return j;
 }
-const ERR={invalid_credentials:'اسم المستخدم أو كلمة المرور غير صحيحة',too_many_attempts:'محاولات كثيرة. حاول بعد 15 دقيقة',bus_in_use:'هذا الباص مستخدم عند سائق آخر',shift_already_open:'عندك دوام مفتوح',username_taken:'اسم المستخدم مستخدم',bad_request:'بيانات غير صحيحة'};
+const ERR={invalid_credentials:'اسم المستخدم أو كلمة المرور غير صحيحة',too_many_attempts:'محاولات كثيرة. حاول بعد 15 دقيقة',bus_in_use:'هذا الباص مستخدم عند سائق آخر',shift_already_open:'عندك دوام مفتوح',no_open_shift:'الدوام مقفل مسبقًا',username_taken:'اسم المستخدم مستخدم',bad_request:'بيانات غير صحيحة'};
 const errMsg=e=>ERR[e.code]||(e.status?'تعذر تنفيذ الطلب':'لا يوجد اتصال بالخادم');
 let session=jget('bt.session',null),timers=[],watchId=null,map=null;
 const clearTimers=()=>{timers.forEach(clearInterval);timers=[];if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null}if(map){map.remove();map=null}};
@@ -222,7 +222,7 @@ function driverLive(){
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/></svg><div class="ring-in"><div class="tm">00:00:00</div><small>الدوام 8 ساعات</small></div></div>
       <label class="f">الباص</label><select class="t" id="bus">${opts.map(b=>`<option ${b===session.bus?'selected':''}>${esc(b)}</option>`).join('')}</select>
       <button class="btn gold" id="in" ${opts.length?'':'disabled'}>استلام الباص</button>${opts.length?'':'<p class="err">ما في باصات مضافة. كلم المدير.</p>'}`;
-      $('#in')&&($('#in').onclick=async()=>{try{apply(await api('/api/shift/start',{method:'POST',body:{bus:$('#bus').value}}));toast('بدأ الدوام. الله يعطيك العافية');keepAwake();send()}catch(e){if(e.message==='shift_already_open'){try{apply(await api('/api/me'));toast('عندك دوام مفتوح. تم استرجاعه');keepAwake()}catch(_){}}else if(e.message!=='unauth')toast(errMsg(e))}});
+      $('#in')&&($('#in').onclick=async()=>{const btn=$('#in');if(btn.disabled)return;btn.disabled=true;try{apply(await api('/api/shift/start',{method:'POST',body:{bus:$('#bus').value}}));toast('بدأ الدوام. الله يعطيك العافية');keepAwake();send()}catch(e){btn.disabled=false;if(e.message==='shift_already_open'){try{apply(await api('/api/me'));toast('عندك دوام مفتوح. تم استرجاعه');keepAwake()}catch(_){}}else if(e.message!=='unauth')toast(errMsg(e))}});
     }else{
       const e=Date.now()+skew-sh.start_ts,over=Math.max(0,e-H8),frac=Math.min(1,e/H8);
       $('#shift').innerHTML=`<div class="ring-wrap"><svg class="ring" viewBox="0 0 240 240"><circle class="bg" cx="120" cy="120" r="104"/><circle class="fg ${over?'ot':''}" cx="120" cy="120" r="104" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-frac)}"/></svg>
@@ -230,7 +230,7 @@ function driverLive(){
       <div class="ot-box" id="otb">${over?'وقت إضافي: '+hms(over):''}</div>
       <p style="text-align:center;color:#64748b;margin:6px 0 0;font-size:14px">الباص ${esc(sh.bus)} · بدأ ${ftime(sh.start_ts)}</p>
       <button class="btn red" id="out">تسليم الباص</button>`;
-      $('#out').onclick=async()=>{if(!confirm('تأكيد تسليم الباص وإنهاء الدوام؟'))return;try{await send();const m=await api('/api/shift/end',{method:'POST'});wl?.release?.();apply(m);toast(m.ended.overtimeMs?'تم التسليم. وقت إضافي '+hm(m.ended.overtimeMs):'تم التسليم. شكرًا لك')}catch(e){if(e.message!=='unauth')toast(errMsg(e))}};
+      $('#out').onclick=async()=>{if(!confirm('تأكيد تسليم الباص وإنهاء الدوام؟'))return;const btn=$('#out');if(btn.disabled)return;btn.disabled=true;try{await send();const m=await api('/api/shift/end',{method:'POST'});wl?.release?.();apply(m);toast(m.ended.overtimeMs?'تم التسليم. وقت إضافي '+hm(m.ended.overtimeMs):'تم التسليم. شكرًا لك')}catch(e){btn.disabled=false;if(e.message==='no_open_shift'){try{apply(await api('/api/me'));toast('الدوام كان مقفلًا. تم التحديث')}catch(_){}}else if(e.message!=='unauth')toast(errMsg(e))}};
     }
   }
   const load=async()=>{try{apply(await api('/api/me'));st.net=true}catch(e){if(e.message==='unauth')return;st.net=false}netUi()};
@@ -240,7 +240,7 @@ function driverLive(){
   load();
   timers.push(setInterval(()=>{if(!st.shift)return;const e=Date.now()+skew-st.shift.start_ts;const t=$('#tm');if(t)t.textContent=hms(e);const over=Math.max(0,e-H8);$('#otb')&&($('#otb').textContent=over?'وقت إضافي: '+hms(over):'');if(over&&!$('.ring .fg.ot'))renderShift()},1000));
   timers.push(setInterval(()=>{if(NATIVE)flush(false);else if(st.pos&&Date.now()-st.sent>12000)send()},4000));
-  timers.push(setInterval(async()=>{try{const m=await api('/api/me');st.shift=m.shift;st.net=true}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
+  timers.push(setInterval(async()=>{try{const m=await api('/api/me');const had=!!st.shift;st.shift=m.shift;st.net=true;if(had!==!!m.shift)apply(m)}catch(e){if(e.message!=='unauth')st.net=false}netUi()},30000));
   document.onvisibilitychange=()=>{if(!document.hidden){wl=null;keepAwake();if(NATIVE){checkBat();flush(true)}else send()}};
 }
 
