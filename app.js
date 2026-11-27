@@ -64,7 +64,7 @@ const ot=s=>Math.max(0,(s.end-s.start)-H8);
 /* ---------- login ---------- */
 function loginView(msg=''){
   clearTimers();
-  $('#app').innerHTML=`<div class="login">${ICON}<h1>تتبع الباصات</h1><p class="sub">دخول السائقين ولوحة الإدارة</p>
+  $('#app').innerHTML=`<div class="login">${ICON}<h1>BusPulse</h1>
   <form class="card" id="lf"><label class="f">اسم المستخدم</label><input class="t" id="u" autocomplete="username" autocapitalize="off" required>
   <label class="f">كلمة المرور</label><input class="t" id="p" type="password" autocomplete="current-password" required>
   <div class="err" id="er">${esc(msg)}</div><button class="btn gold" type="submit">دخول</button>
@@ -88,7 +88,7 @@ function driverView(){
   const d=drv(session.u);
   const st={pos:null,acc:null,speed:0,bat:null,perm:'ask',km:0,trips:0,still:0,moving:false,last:null};
   const shift0=jget('bt.shift.'+d.u,null);if(shift0){st.km=shift0.km||0;st.trips=shift0.trips||0}
-  $('#app').innerHTML=`<div class="top"><div><b>${esc(d.name)}</b><small>${esc(d.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
+  $('#app').innerHTML=`<div class="top"><div><b>BusPulse</b><small>${esc(d.name)} · ${esc(d.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
   <div class="pad"><div id="perm"></div>
    <div class="card"><div id="shift"></div></div>
    <div class="stats"><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
@@ -159,7 +159,7 @@ async function driverNative(){
 function driverLive(){
   clearTimers();
   const st={pos:null,acc:null,speed:0,bat:null,perm:'ask',last:null,sent:0,shift:null,off:0,net:true,lastList:[],buses:[]};
-  $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
+  $('#app').innerHTML=`<div class="top"><div><b>BusPulse</b><small>${esc(session.name||session.u)} · ${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
   <div class="pad"><div id="perm"></div><div id="trk"></div><div id="net"></div>
    <div class="card"><div id="shift"></div></div>
    <div class="stats"><div class="stat"><b id="s-sp">0</b><span>كم/س</span></div><div class="stat"><b id="s-bat">—</b><span>البطارية</span></div></div>
@@ -208,7 +208,7 @@ function driverLive(){
       if(nat.id!=null){await BG.removeWatcher({id:nat.id});nat.id=null}
       try{Object.assign(nat.cfg,await api('/api/config'))}catch(_){}
       const o={requestPermissions:true,stale:false,distanceFilter:0};
-      if(mode==='bg'){o.backgroundMessage='تتبع الموقع شغال أثناء الدوام';o.backgroundTitle='تتبع الباصات'}
+      if(mode==='bg'){o.backgroundMessage='تتبع الموقع شغال أثناء الدوام';o.backgroundTitle='BusPulse'}
       nat.id=await BG.addWatcher(o,(loc,err)=>{
         if(err){if(err.code==='NOT_AUTHORIZED'){st.perm='denied';permUi()}return}
         const now=Date.now(),ts=loc.time||now,np=[loc.latitude,loc.longitude];
@@ -308,7 +308,7 @@ const batHtml=b=>b==null?'<span class="bat">—</span>':`<span class="bat" style
 let tab='map',styleK=['std','sat'].includes(localStorage.getItem('bt.style'))?localStorage.getItem('bt.style'):'std',tile=null,markers={},focus=null,month=new Date().toISOString().slice(0,7);
 function adminView(){
   clearTimers();markers={};
-  $('#app').innerHTML=`<div class="top"><div><b>لوحة الإدارة</b><small>${esc(LIVE&&session?.name||D.admin.name)}${session?.sub==='manager'?' · مدير التشغيل':session?.sub==='viewer'?' · مدير عام (عرض فقط)':''}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
+  $('#app').innerHTML=`<div class="top"><div><b>BusPulse</b><small>لوحة الإدارة · ${esc(LIVE&&session?.name||D.admin.name)}${session?.sub==='manager'?' · مدير التشغيل':session?.sub==='viewer'?' · مدير عام (عرض فقط)':''}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div>
   <div class="tabs"><button class="tab ${tab==='map'?'on':''}" data-t="map">الخريطة المباشرة</button><button class="tab ${tab==='rep'?'on':''}" data-t="rep">تقرير الوقت الإضافي</button>${LIVE?`<button class="tab ${tab==='drv'?'on':''}" data-t="drv">السائقون</button><button class="tab ${tab==='acc'?'on':''}" data-t="acc">حسابي</button>`:''}</div>
   <div class="admin" id="body"></div><div class="drawer" id="dr"><div class="in" id="drin"></div></div>`;
   $('#lo').onclick=logout;$('#dr').onclick=e=>{if(e.target.id==='dr')$('#dr').classList.remove('on')};
@@ -451,7 +451,7 @@ async function consentGate(){
   return await consentModal()}
 async function driverInfo(){
   clearTimers();
-  $('#app').innerHTML=`<div class="top"><div><b>${esc(session.name||session.u)}</b><small>${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div><div class="pad" id="inf"><p style="text-align:center;color:#64748b;padding:30px 0">جارٍ التحميل...</p></div>`;
+  $('#app').innerHTML=`<div class="top"><div><b>BusPulse</b><small>${esc(session.name||session.u)} · ${esc(session.u)}</small></div><span class="sp"></span><button class="out" id="lo">خروج</button></div><div class="pad" id="inf"><p style="text-align:center;color:#64748b;padding:30px 0">جارٍ التحميل...</p></div>`;
   $('#lo').onclick=()=>{LS.removeItem('bt.session');session=null;route()};
   const dl=`<div class="card" style="text-align:center"><b>تطبيق السائق</b><p style="color:#64748b;font-size:14px;margin:6px 0 12px">استلام وتسليم الباص وتتبع الموقع يتم من تطبيق أندرويد فقط. حمّله وثبّته، ثم سجّل دخولك بنفس الحساب.</p><a class="dl" href="${APK_URL}">📲 تحميل التطبيق (أندرويد)</a><p style="color:#64748b;font-size:12.5px;margin:10px 0 0">بعد التحميل افتح الملف واسمح بالتثبيت من هذا المصدر إذا طُلب منك.</p></div>`;
   try{

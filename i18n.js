@@ -54,8 +54,6 @@ var P=[
 ['تعذر تنفيذ الطلب','Request failed'],
 ['لا يوجد اتصال بالخادم. نعيد المحاولة تلقائيًا.','No connection to the server. Retrying automatically.'],
 ['لا يوجد اتصال بالخادم','No connection to the server'],
-['دخول السائقين ولوحة الإدارة','Driver sign-in and admin dashboard'],
-['تتبع الباصات','Bus Tracker'],
 ['اسم المستخدم (إنجليزي)','Username (English letters)'],
 ['اسم المستخدم','Username'],
 ['كلمة المرور الحالية غير صحيحة','Current password is wrong'],
