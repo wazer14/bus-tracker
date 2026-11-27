@@ -114,7 +114,9 @@ async function ensureTables(env){if(tablesOk)return;
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS push_tokens(u TEXT PRIMARY KEY,token TEXT NOT NULL,platform TEXT,ts INTEGER NOT NULL)').run();
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS track(shift_id INTEGER NOT NULL,u TEXT NOT NULL,ts INTEGER NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,speed REAL,acc REAL,bat INTEGER)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS track_shift ON track(shift_id,ts)').run();
-  await env.DB.prepare('CREATE INDEX IF NOT EXISTS track_u ON track(u,ts)').run();tablesOk=true}
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS track_u ON track(u,ts)').run();
+  await env.DB.prepare("UPDATE users SET name=u WHERE role='driver' AND name<>u").run(); // one identifier: the login username is the display name
+  tablesOk=true}
 // Route replay: store a breadcrumb per open shift, sampled to ~1 point per 8s or 15m of movement.
 async function trackPoint(env,shId,u,ts,lat,lon,speed,acc,bat){
   await ensureTables(env);
@@ -329,17 +331,16 @@ export default {
         return J({shift:{id:sh.id,u:sh.u,name:usr?usr.name:sh.u,bus:sh.bus,start_ts:sh.start_ts,end_ts:sh.end_ts},points:pts.map(p=>[p.ts,p.lat,p.lon,Math.round((p.speed||0)*10)/10])},200,H)}
       if(path==='/api/drivers'&&req.method==='GET')return J((await env.DB.prepare("SELECT u,name,phone,bus,active FROM users WHERE role='driver' ORDER BY name").all()).results,200,H);
       if(path==='/api/drivers'&&req.method==='POST'){
-        const b=await req.json().catch(()=>({}));const u=normU(b.u),name=str(b.name,80),pw=normP(b.password);
-        if(!u||u.length>40||!/^[a-z0-9._-]+$/.test(u)||!name||pw.length<PW_MIN)return J({error:'bad_request',hint:'username a-z0-9._-, name, password >= 4 chars'},400,H);
+        const b=await req.json().catch(()=>({}));const u=normU(b.u),pw=normP(b.password);
+        if(!u||u.length>40||!/^[a-z0-9._-]+$/.test(u)||pw.length<PW_MIN)return J({error:'bad_request',hint:'username a-z0-9._-, password >= 4 chars'},400,H);
         const salt=newSalt();
-        try{await env.DB.prepare("INSERT INTO users(u,name,phone,role,pw_hash,pw_salt,bus,created_at) VALUES(?,?,?, 'driver',?,?,?,?)").bind(u,name,str(b.phone,20),await hashPw(pw,salt),salt,str(b.bus,40),Date.now()).run()}catch(_){return J({error:'username_taken'},409,H)}
+        try{await env.DB.prepare("INSERT INTO users(u,name,phone,role,pw_hash,pw_salt,bus,created_at) VALUES(?,?,?, 'driver',?,?,?,?)").bind(u,u,str(b.phone,20),await hashPw(pw,salt),salt,str(b.bus,40),Date.now()).run()}catch(_){return J({error:'username_taken'},409,H)}
         return J({ok:true},201,H);
       }
       const m=path.match(/^\/api\/drivers\/([a-z0-9._-]+)$/);
       if(m&&req.method==='PATCH'){
         const b=await req.json().catch(()=>({}));const u=m[1];
         if(typeof b.password==='string'){const np=normP(b.password);if(np.length<PW_MIN)return J({error:'password_too_short'},400,H);const salt=newSalt();await env.DB.prepare("UPDATE users SET pw_hash=?,pw_salt=? WHERE u=? AND role='driver'").bind(await hashPw(np,salt),salt,u).run()}
-        if(b.name!==undefined&&str(b.name,80))await env.DB.prepare("UPDATE users SET name=? WHERE u=? AND role='driver'").bind(str(b.name,80),u).run();
         if(b.phone!==undefined)await env.DB.prepare("UPDATE users SET phone=? WHERE u=? AND role='driver'").bind(str(b.phone,20),u).run();
         if(b.bus!==undefined)await env.DB.prepare("UPDATE users SET bus=? WHERE u=? AND role='driver'").bind(str(b.bus,40),u).run();
         if(b.active!==undefined)await env.DB.prepare("UPDATE users SET active=? WHERE u=? AND role='driver'").bind(b.active?1:0,u).run();

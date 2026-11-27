@@ -124,6 +124,8 @@ r=await call('POST','/api/drivers',{u:'samer',name:'KB',password:'12345'},A);t('
 r=await call('POST','/api/login',{u:'سشةثق',p:'12345'});t('arabic-keyboard username maps to latin',r.s===200&&r.b.user.u==='samer');
 r=await call('POST','/api/drivers',{u:'d7',name:'Seven',password:'1234'},A);t('4-char pw accepted',r.s===201);
 r=await call('POST','/api/drivers',{u:'شاكير',name:'Ar',password:'12345'},A);t('arabic username rejected at create',r.s===400);
+r=await call('POST','/api/drivers',{u:'d8',name:'مهند',password:'12345'},A);t('name field ignored/forced',r.s===201);
+r=await call('GET','/api/drivers',null,A);t('driver name equals username',r.b.find(x=>x.u==='d8').name==='d8');
 r=await call('POST','/api/login',{u:'d7',p:'1234'});const D7=r.b.token;
 await call('POST','/api/buses',{id:'B-7'},A);
 r=await call('POST','/api/shift/start',{bus:'B-7'},D7);t('track: shift start',r.s===200);
@@ -132,7 +134,7 @@ r=await call('POST','/api/positions',{points:tps},D7);t('track: batch accepted',
 r=await call('POST','/api/shift/end',null,D7);t('track: shift end',r.s===200);
 r=await call('GET','/api/shifts?u=d7',null,A);t('shifts list',r.s===200&&r.b.shifts.length===1);
 const sid=r.b.shifts[0].id;
-r=await call('GET','/api/track?shift='+sid,null,A);t('track points stored',r.s===200&&r.b.points.length===5&&r.b.shift.name==='Seven');
+r=await call('GET','/api/track?shift='+sid,null,A);t('track points stored',r.s===200&&r.b.points.length===5&&r.b.shift.name==='d7');
 r=await call('GET','/api/track?shift='+sid,null,D7);t('driver cannot read track',r.s===403||r.s===404);
 r=await call('DELETE','/api/drivers/d7',null,A);t('driver delete cascades track',r.s===200);
 r=await call('GET','/api/track?shift='+sid,null,A);t('track gone after driver delete',r.s===404);
