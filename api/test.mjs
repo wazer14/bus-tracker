@@ -93,4 +93,24 @@ r=await call('POST','/api/shift/start',{bus:'B-1'},D2);t('shift for dup test',r.
 let threw=false;try{db.prepare("INSERT INTO shifts(u,bus,start_ts) VALUES('d1','B-2',?)").run(Date.now())}catch(e){threw=true}
 t('unique open-shift index rejects duplicate',threw===true);
 r=await call('POST','/api/shift/end',null,D2);t('cleanup end',r.s===200);
+// --- auto-closed shifts need manager review before counting as overtime ---
+r=await call('POST','/api/shift/start',{bus:'B-1'},D2);t('shift for review test',r.s===200);
+db.prepare('UPDATE shifts SET start_ts=start_ts-? WHERE end_ts IS NULL').run(20*3600e3); // forgotten 20h ago
+r=await call('GET','/api/me',null,D2);t('second stale shift auto-closed',r.s===200&&!r.b.shift);
+r=await call('GET','/api/report?month='+mo,null,A);
+let d1=r.b.drivers.find(x=>x.u==='d1');
+const pend=d1.shifts.filter(x=>x.pending).sort((a,b)=>b.id-a.id);
+const p=pend[0]; // newest pending = the shift just auto-closed
+t('auto-closed shift flagged pending in report',!!p&&p.autoClosed===true&&p.reviewed===false&&Math.abs(p.overtimeMs-8*3600e3)<1000);
+t('pending excluded, totals consistent',d1.pending===pend.length&&Math.abs(d1.pendingOvertimeMs-pend.reduce((a,x)=>a+x.overtimeMs,0))<1&&Math.abs(d1.overtimeMs-d1.shifts.filter(x=>!x.pending).reduce((a,x)=>a+x.overtimeMs,0))<1&&d1.days===d1.shifts.filter(x=>!x.pending).length);
+const beforeOt=d1.overtimeMs,beforePend=d1.pending;
+r=await call('POST','/api/shifts/review',{id:p.id},D2);t('driver cannot confirm review',r.s===403);
+r=await call('POST','/api/admins',{u:'gm3',name:'V3',password:'gmpass1234',level:'viewer'},A);
+r=await call('POST','/api/login',{u:'gm3',p:'gmpass1234'});const V3=r.b.token;
+r=await call('POST','/api/shifts/review',{id:p.id},V3);t('viewer cannot confirm review',r.s===403);
+r=await call('POST','/api/shifts/review',{id:999999},A);t('review unknown id 404',r.s===404);
+r=await call('POST','/api/shifts/review',{id:p.id},M);t('ops manager can confirm review',r.s===200&&r.b.ok===true);
+r=await call('GET','/api/report?month='+mo,null,A);
+d1=r.b.drivers.find(x=>x.u==='d1');
+t('reviewed shift counts in overtime totals',d1.pending===beforePend-1&&d1.shifts.find(x=>x.id===p.id).reviewed===true&&Math.abs(d1.overtimeMs-(beforeOt+p.overtimeMs))<1);
 process.exit(ok?0:1);

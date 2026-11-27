@@ -128,10 +128,18 @@ async function positionsBatch(env,me,req,H){
 }
 // Auto-close forgotten open shifts (driver closed the app without handing over).
 // end_ts is capped at start+STALE_MS so reports never count days of fake overtime.
+let shiftColsOk=false;
+async function ensureShiftCols(env){
+  if(shiftColsOk)return;
+  try{await env.DB.prepare('ALTER TABLE shifts ADD COLUMN auto_closed INTEGER NOT NULL DEFAULT 0').run()}catch(_){}
+  try{await env.DB.prepare('ALTER TABLE shifts ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0').run()}catch(_){}
+  shiftColsOk=true;
+}
 async function closeStaleShifts(env,u){
+  await ensureShiftCols(env);
   const now=Date.now();
-  if(u)await env.DB.prepare('UPDATE shifts SET end_ts=start_ts+? WHERE u=? AND end_ts IS NULL AND start_ts<?').bind(STALE_MS,u,now-STALE_MS).run();
-  else await env.DB.prepare('UPDATE shifts SET end_ts=start_ts+? WHERE end_ts IS NULL AND start_ts<?').bind(STALE_MS,now-STALE_MS).run();
+  if(u)await env.DB.prepare('UPDATE shifts SET end_ts=start_ts+?,auto_closed=1 WHERE u=? AND end_ts IS NULL AND start_ts<?').bind(STALE_MS,u,now-STALE_MS).run();
+  else await env.DB.prepare('UPDATE shifts SET end_ts=start_ts+?,auto_closed=1 WHERE end_ts IS NULL AND start_ts<?').bind(STALE_MS,now-STALE_MS).run();
 }
 // One-time guards: close duplicate open shifts (keep newest per user and per bus), then
 // unique partial indexes make a second open shift per user or per bus impossible at the DB level,
@@ -151,7 +159,7 @@ async function meInfo(env,me){
   await closeStaleShifts(env,me.u);
   const u=await env.DB.prepare('SELECT u,name,phone,role,bus,sub FROM users WHERE u=?').bind(me.u).first();
   const shift=await env.DB.prepare('SELECT id,bus,start_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NULL').bind(me.u).first();
-  const last=await env.DB.prepare('SELECT bus,start_ts,end_ts,km,trips FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 5').bind(me.u).all();
+  const last=await env.DB.prepare('SELECT bus,start_ts,end_ts,km,trips,auto_closed,reviewed FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 5').bind(me.u).all();
   const buses=await env.DB.prepare('SELECT id,label FROM buses WHERE active=1 ORDER BY id').all();
   return {user:u,shift,last:last.results,buses:buses.results,now:Date.now()};
 }
@@ -164,13 +172,18 @@ async function fleet(env){
 }
 async function report(env,month){
   if(!/^\d{4}-\d{2}$/.test(month))return null;
+  await ensureShiftCols(env);
   const [y,m]=month.split('-').map(Number);
   const tz=3*3600e3; // Asia/Riyadh, UTC+3 all year
   const from=Date.UTC(y,m-1,1)-tz,to=Date.UTC(y,m,1)-tz;
-  const rows=await env.DB.prepare('SELECT u,bus,start_ts,end_ts,km,trips FROM shifts WHERE end_ts IS NOT NULL AND start_ts>=? AND start_ts<? ORDER BY start_ts').bind(from,to).all();
+  const rows=await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts,km,trips,auto_closed,reviewed FROM shifts WHERE end_ts IS NOT NULL AND start_ts>=? AND start_ts<? ORDER BY start_ts').bind(from,to).all();
   const users=await env.DB.prepare("SELECT u,name FROM users WHERE role='driver'").all();
-  return {month,drivers:users.results.map(d=>{const l=rows.results.filter(s=>s.u===d.u).map(s=>({bus:s.bus,start:s.start_ts,end:s.end_ts,km:s.km,trips:s.trips,overtimeMs:Math.max(0,s.end_ts-s.start_ts-H8)}));
-    return {u:d.u,name:d.name,days:l.length,totalMs:l.reduce((a,s)=>a+s.end-s.start,0),overtimeMs:l.reduce((a,s)=>a+s.overtimeMs,0),overtimeDays:l.filter(s=>s.overtimeMs>0).length,km:l.reduce((a,s)=>a+s.km,0),shifts:l}})};
+  // Auto-closed shifts (forgotten handover, end time is a guess) stay out of the final
+  // totals until a manager confirms them; they are returned flagged as pending instead.
+  return {month,drivers:users.results.map(d=>{
+    const all=rows.results.filter(s=>s.u===d.u).map(s=>({id:s.id,bus:s.bus,start:s.start_ts,end:s.end_ts,km:s.km,trips:s.trips,autoClosed:!!s.auto_closed,reviewed:!!s.reviewed,pending:!!(s.auto_closed&&!s.reviewed),overtimeMs:Math.max(0,s.end_ts-s.start_ts-H8)}));
+    const fin=all.filter(s=>!s.pending),pend=all.filter(s=>s.pending);
+    return {u:d.u,name:d.name,days:fin.length,totalMs:fin.reduce((a,s)=>a+s.end-s.start,0),overtimeMs:fin.reduce((a,s)=>a+s.overtimeMs,0),overtimeDays:fin.filter(s=>s.overtimeMs>0).length,km:fin.reduce((a,s)=>a+s.km,0),pending:pend.length,pendingMs:pend.reduce((a,s)=>a+s.end-s.start,0),pendingOvertimeMs:pend.reduce((a,s)=>a+s.overtimeMs,0),shifts:all}})};
 }
 export default {
   async fetch(req,env){
@@ -309,6 +322,7 @@ export default {
       if(path==='/api/push/register'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const token=str(b.token,400);if(!token)return J({error:'bad_request'},400,H);await ensureTables(env);await env.DB.prepare('INSERT INTO push_tokens(u,token,platform,ts) VALUES(?,?,?,?) ON CONFLICT(u) DO UPDATE SET token=excluded.token,platform=excluded.platform,ts=excluded.ts').bind(me.u,token,str(b.platform,20)||null,Date.now()).run();return J({ok:true},201,H)}
       if(path==='/api/push/register'&&req.method==='DELETE'){await ensureTables(env);await env.DB.prepare('DELETE FROM push_tokens WHERE u=?').bind(me.u).run();return J({ok:true},200,H)}
       if(path==='/api/push/send'&&req.method==='POST'){const e=adminOnly();if(e)return e;await ensureTables(env);const b=await req.json().catch(()=>({}));const title=str(b.title,120),body=str(b.body,400);if(!title||!body)return J({error:'bad_request'},400,H);try{return J(await sendPush(env,b.u?str(b.u,60):null,title,body),200,H)}catch(err){return J({error:String(err.message||'push_failed')},502,H)}}
+      if(path==='/api/shifts/review'&&req.method==='POST'){const e=adminOnly();if(e)return e;await ensureShiftCols(env);const b=await req.json().catch(()=>({}));const id=Number(b.id);if(!Number.isInteger(id))return J({error:'bad_request'},400,H);const sh=await env.DB.prepare('SELECT id FROM shifts WHERE id=? AND auto_closed=1').bind(id).first();if(!sh)return J({error:'not_found'},404,H);await env.DB.prepare('UPDATE shifts SET reviewed=1 WHERE id=?').bind(id).run();return J({ok:true},200,H)}
       return J({error:'not_found'},404,H);
     }catch(e){return J({error:'server_error'},500,H)}
   }
