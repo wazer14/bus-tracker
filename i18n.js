@@ -205,7 +205,16 @@ var P=[
 ['حذف المستخدم الإداري ','Delete the admin user '],
 ['وضع العرض فقط — يمكنك الاطلاع على كل شيء بدون إجراء تغييرات.','View-only mode: you can see everything but cannot change anything.'],
 ['المستخدم','User'],
+['وقت النهاية يجب أن يكون بعد وقت البداية','End time must be after start time'],
+['لا يوجد تغيير لحفظه','No change to save'],
+['وقت غير صحيح','Invalid time'],
+['لا يمكن تعديل دوام مفتوح','Cannot edit an open shift'],
+['دوام عدّلته الإدارة (وقت البداية أو النهاية) بعد تسجيله، مع حفظ سجل التعديل.','A shift edited by management (start or end time) after recording; the edit log is kept.'],
+['لا توجد دوامات.','No shifts.'],
+['إغلاق','Close'],
+['تأكيد','Confirm'],
 ];
+
 P.sort(function(a,b){return b[0].length-a[0].length});
 var AR='ء-ي';
 P.forEach(function(p){var a=p[0];if(a.length<=12&&/^[ء-ي]/.test(a)&&/[ء-ي]$/.test(a)){p.push(new RegExp('(?<![ء-ي])'+a.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![ء-ي])','g'))}});

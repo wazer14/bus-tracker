@@ -34,7 +34,7 @@ async function api(path,opt={}){
   if(r.status===401&&session&&path!=='/api/login'){LS.removeItem('bt.session');session=null;loginView('انتهت الجلسة. سجّل دخولك من جديد');throw new Error('unauth')}
   if(!r.ok)throw Object.assign(new Error(j.error||'error'),{code:j.error,status:r.status});return j;
 }
-const ERR={invalid_credentials:'اسم المستخدم أو كلمة المرور غير صحيحة',too_many_attempts:'محاولات كثيرة. حاول بعد 15 دقيقة',bus_in_use:'هذا الباص مستخدم عند سائق آخر',shift_already_open:'عندك دوام مفتوح',no_open_shift:'الدوام مقفل مسبقًا',username_taken:'اسم المستخدم مستخدم',bad_request:'بيانات غير صحيحة'};
+const ERR={invalid_credentials:'اسم المستخدم أو كلمة المرور غير صحيحة',too_many_attempts:'محاولات كثيرة. حاول بعد 15 دقيقة',bus_in_use:'هذا الباص مستخدم عند سائق آخر',shift_already_open:'عندك دوام مفتوح',no_open_shift:'الدوام مقفل مسبقًا',username_taken:'اسم المستخدم مستخدم',bad_request:'بيانات غير صحيحة',end_before_start:'وقت النهاية يجب أن يكون بعد وقت البداية',no_change:'لا يوجد تغيير لحفظه',bad_time:'وقت غير صحيح',shift_open:'لا يمكن تعديل دوام مفتوح'};
 const errMsg=e=>ERR[e.code]||(e.status?'تعذر تنفيذ الطلب':'لا يوجد اتصال بالخادم');
 const BIO=NATIVE&&window.Capacitor.Plugins&&window.Capacitor.Plugins.BioAuth||null;
 const unorm=v=>String(v||'').normalize('NFKC').replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[۰-۹]/g,c=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(c)).trim().toLowerCase();
@@ -400,41 +400,78 @@ function monthRows(m){
 }
 async function repTab(){
   let rows;
-  if(LIVE){try{const r=await api('/api/report?month='+month);rows=r.drivers.map(d=>({d:{u:d.u,name:d.name},l:d.shifts.map(x=>({id:x.id,u:d.u,bus:x.bus,start:x.start,end:x.end,pend:x.pending})),days:d.days,tot:d.totalMs,ot:d.overtimeMs,otDays:d.overtimeDays,pending:d.pending||0,pendingOt:d.pendingOvertimeMs||0}))}catch(e){if(e.message==='unauth')return;$('#body').innerHTML='<div class="rep"><div class="banner bad">تعذر تحميل التقرير. '+esc(errMsg(e))+'</div></div>';return}}
+  if(LIVE){try{const r=await api('/api/report?month='+month);rows=r.drivers.map(d=>({d:{u:d.u,name:d.name},l:d.shifts.map(x=>({id:x.id,u:d.u,bus:x.bus,start:x.start,end:x.end,pend:x.pending,ed:x.edited})),days:d.days,tot:d.totalMs,ot:d.overtimeMs,otDays:d.overtimeDays,pending:d.pending||0,pendingOt:d.pendingOvertimeMs||0}))}catch(e){if(e.message==='unauth')return;$('#body').innerHTML='<div class="rep"><div class="banner bad">تعذر تحميل التقرير. '+esc(errMsg(e))+'</div></div>';return}}
   else rows=monthRows(month);
   $('#body').innerHTML=`<div class="rep"><div class="bar"><input type="month" id="mo" value="${month}"><button class="btn sm ghost" id="csv">تصدير CSV</button> <button class="btn sm ghost" id="pdf">تقرير PDF</button><span style="color:#64748b;font-size:13px">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه</span></div>
   <table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الساعات</th><th>ساعات إضافية</th><th>أيام فيها إضافي</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr class="clk" data-u="${r.d.u}"><td><b>${esc(r.d.name)}</b><br><small style="color:#64748b">${esc(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}${r.pending?`<br><small style="color:#b45309;font-weight:400">⏳ ${r.pending} قيد المراجعة (+${hm(r.pendingOt)} تقديري)</small>`:''}</td><td>${r.otDays}</td></tr>`).join('')}
+  ${rows.map(r=>`<tr class="clk" data-u="${r.d.u}"><td><b>${esc(r.d.name)}</b>${r.l.some(s=>s.ed)?' <small style="color:#7c3aed" title="edited">✏️</small>':''}<br><small style="color:#64748b">${esc(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}${r.pending?`<br><small style="color:#b45309;font-weight:400">⏳ ${r.pending} قيد المراجعة (+${hm(r.pendingOt)} تقديري)</small>`:''}</td><td>${r.otDays}</td></tr>`).join('')}
   <tr style="background:#f1f5f9;font-weight:800"><td>الإجمالي</td><td>${rows.reduce((a,r)=>a+r.days,0)}</td><td>${hm(rows.reduce((a,r)=>a+r.tot,0))}</td><td class="ov">${hm(rows.reduce((a,r)=>a+r.ot,0))}${rows.some(r=>r.pending)?`<br><small style="color:#b45309;font-weight:400">⏳ ${rows.reduce((a,r)=>a+r.pending,0)} قيد المراجعة (+${hm(rows.reduce((a,r)=>a+r.pendingOt,0))} تقديري)</small>`:''}</td><td>${rows.reduce((a,r)=>a+r.otDays,0)}</td></tr></tbody></table>
   <div class="note">بيانات الأشهر السابقة تجريبية. الدوام اللي يسجله سائق على هذا الجهاز يظهر هنا أيضًا. اضغط على اسم السائق لتفاصيل الأيام.</div></div>`;
   $('#mo').onchange=e=>{if(e.target.value){month=e.target.value;repTab()}};
-  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','total','overtime','status']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),hm(s.end-s.start),s.pend?'pending_review':(ot(s)?hm(ot(s)):'0'),s.pend?'pending_review':''])));
+  $('#csv').onclick=()=>{const lines=[['driver','username','date','bus','start','end','total','overtime','status']];rows.forEach(r=>r.l.forEach(s=>lines.push([r.d.name,r.d.u,new Date(s.start).toISOString().slice(0,10),s.bus,ftime(s.start),ftime(s.end),hm(s.end-s.start),s.pend?'pending_review':(ot(s)?hm(ot(s)):'0'),[s.pend?'pending_review':'',s.ed?'edited':''].filter(Boolean).join('+')])));
     const csv='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='overtime-'+month+'.csv';a.click()};
   $('#pdf').onclick=()=>{const w=window.open('','_blank');if(!w){toast('اسمح بالنوافذ المنبثقة لفتح التقرير');return}
     const E=esc,tot=k=>rows.reduce((a,r)=>a+r[k],0);
     const sum=rows.map(r=>`<tr><td>${E(r.d.name)}<br><small>${E(r.d.u)}</small></td><td>${r.days}</td><td>${hm(r.tot)}</td><td class="${r.ot?'ov':''}">${hm(r.ot)}</td><td>${r.otDays}</td></tr>`).join('');
-    const det=rows.filter(r=>r.l.length).map(r=>`<h3>${E(r.d.name)}</h3><table><thead><tr><th>التاريخ</th><th>الباص</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}</td><td>${E(s.bus||'-')}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td>${s.pend?`<td style="color:#b45309">قيد المراجعة (تقديري ${hm(ot(s))})</td>`:`<td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td>`}</tr>`).join('')}</tbody></table>`).join('');
+    const det=rows.filter(r=>r.l.length).map(r=>`<h3>${E(r.d.name)}</h3><table><thead><tr><th>التاريخ</th><th>الباص</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th></tr></thead><tbody>${r.l.map(s=>`<tr><td>${fdate(s.start)}${s.ed?' ✏️':''}</td><td>${E(s.bus||'-')}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td>${s.pend?`<td style="color:#b45309">قيد المراجعة (تقديري ${hm(ot(s))})</td>`:`<td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td>`}</tr>`).join('')}</tbody></table>`).join('');
     w.document.write(TR(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الوقت الإضافي ${month}</title><style>
     body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#0f172a}h1{font-size:20px;margin:0 0 4px}h3{margin:20px 0 6px;font-size:15px}.s{color:#64748b;font-size:12px;margin-bottom:12px}
     table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:right}th{background:#e2e8f0}small{color:#64748b}.ov{color:#b42318;font-weight:700}tr{page-break-inside:avoid}
     .pb{margin-bottom:14px}@media print{.pb{display:none}}button{padding:8px 16px;font:inherit}</style></head><body>
     <div class="pb"><button onclick="window.print()">طباعة / حفظ كـ PDF</button></div>
     <h1>تقرير الوقت الإضافي · ${month}</h1><div class="s">الوقت الإضافي = أي وقت بعد 8 ساعات من استلام الباص حتى تسليمه · أُنشئ ${new Date().toLocaleString(LANGX==='en'?'en-GB':'ar-SA')}</div>
-    ${rows.some(r=>r.pending)?`<p style="color:#b45309;font-size:13px">⏳ ${tot('pending')} دوام أُغلق تلقائيًا (نسي السائق التسليم) بانتظار مراجعة الإدارة. وقتها الإضافي التقديري (${hm(tot('pendingOt'))}) غير محسوب في الإجماليات أعلاه حتى يتم تأكيده.</p>`:''}<table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>أيام فيها إضافي</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#f1f5f9"><td>${'الإجمالي'}</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${tot('otDays')}</td></tr></tbody></table>${det}
+    ${rows.some(r=>r.pending)?`<p style="color:#b45309;font-size:13px">⏳ ${tot('pending')} دوام أُغلق تلقائيًا (نسي السائق التسليم) بانتظار مراجعة الإدارة. وقتها الإضافي التقديري (${hm(tot('pendingOt'))}) غير محسوب في الإجماليات أعلاه حتى يتم تأكيده.</p>`:''}${rows.some(r=>r.l.some(s=>s.ed))?`<p style="color:#7c3aed;font-size:13px">✏️ = ${'دوام عدّلته الإدارة (وقت البداية أو النهاية) بعد تسجيله، مع حفظ سجل التعديل.'}</p>`:''}<table><thead><tr><th>السائق</th><th>أيام</th><th>إجمالي الوقت</th><th>وقت إضافي</th><th>أيام فيها إضافي</th></tr></thead><tbody>${sum}<tr style="font-weight:700;background:#f1f5f9"><td>${'الإجمالي'}</td><td>${tot('days')}</td><td>${hm(tot('tot'))}</td><td class="ov">${hm(tot('ot'))}</td><td>${tot('otDays')}</td></tr></tbody></table>${det}
     <script>setTimeout(function(){window.print()},500)<\/script></body></html>`).replace(/lang="ar" dir="rtl"/,LANGX==='en'?'lang="en" dir="ltr"':'lang="ar" dir="rtl"'));w.document.close()};
-  document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>{const r=rows.find(x=>x.d.u===t.dataset.u);
-    const canReview=session.sub!=='viewer';
-    $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المدة</th><th>إضافي</th>${LIVE?'<th></th>':''}</tr></thead><tbody>${r.l.map(s=>s.pend?`<tr style="background:#fffbeb"><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td style="color:#b45309"><small>أُغلق تلقائيًا (نسي التسليم) · تقديري ${hm(ot(s))}</small>${canReview?` <button class="btn sm gold" data-rev="${s.id}">تأكيد</button>`:''}</td>${LIVE?`<td><button class="btn sm ghost" data-track="${s.id}">🗺</button></td>`:''}</tr>`:`<tr><td>${fdate(s.start)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td>${LIVE?`<td><button class="btn sm ghost" data-track="${s.id}">🗺</button></td>`:''}</tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
-    $('#drin').querySelectorAll('[data-rev]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api('/api/shifts/review',{method:'POST',body:{id:+b.dataset.rev}});toast('تم التأكيد');$('#dr').classList.remove('on');repTab()}catch(e){b.disabled=false;toast(errMsg(e))}});
-    $('#drin').querySelectorAll('[data-track]').forEach(b=>b.onclick=()=>replayView(+b.dataset.track));
-    $('#dr').classList.add('on')});
+  document.querySelectorAll('tr.clk').forEach(t=>t.onclick=()=>drillIn(rows.find(x=>x.d.u===t.dataset.u)));
+}
+
+const dtl=t=>{const d=new Date(t),p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())};
+function drillIn(r){
+  const canReview=session.sub!=='viewer';
+  const badge=s=>s.ed?` <small style="color:#7c3aed;font-weight:700">✏️ ${TR_('معدّل','edited')}</small>`:'';
+  $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${esc(r.d.name)} · ${month}</h3>`+(r.l.length?`<table><thead><tr><th>${TR_('التاريخ','Date')}</th><th>${TR_('من','From')}</th><th>${TR_('إلى','To')}</th><th>${TR_('المدة','Duration')}</th><th>${TR_('إضافي','Overtime')}</th>${LIVE?'<th></th>':''}</tr></thead><tbody>${r.l.map(s=>s.pend?`<tr style="background:#fffbeb"><td>${fdate(s.start)}${badge(s)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td style="color:#b45309"><small>أُغلق تلقائيًا (نسي التسليم) · تقديري ${hm(ot(s))}</small>${canReview?` <button class="btn sm gold" data-rev="${s.id}">تأكيد</button> <button class="btn sm ghost" data-edit="${s.id}">${TR_('✏️ تعديل','✏️ Edit')}</button>`:''}</td>${LIVE?`<td><button class="btn sm ghost" data-track="${s.id}">🗺</button>${s.ed?` <button class="btn sm ghost" data-hist="${s.id}">📜</button>`:''}</td>`:''}</tr>`:`<tr><td>${fdate(s.start)}${badge(s)}</td><td>${ftime(s.start)}</td><td>${ftime(s.end)}</td><td>${hm(s.end-s.start)}</td><td class="${ot(s)?'ov':''}">${ot(s)?hm(ot(s)):'-'}</td>${LIVE?`<td><button class="btn sm ghost" data-track="${s.id}">🗺</button>${canReview?` <button class="btn sm ghost" data-edit="${s.id}">✏️</button>`:''}${s.ed?` <button class="btn sm ghost" data-hist="${s.id}">📜</button>`:''}</td>`:''}</tr>`).join('')}</tbody></table>`:'<p>لا توجد دوامات.</p>')+'<button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">إغلاق</button>';
+  $('#drin').querySelectorAll('[data-rev]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api('/api/shifts/review',{method:'POST',body:{id:+b.dataset.rev}});toast('تم التأكيد');$('#dr').classList.remove('on');repTab()}catch(e){b.disabled=false;toast(errMsg(e))}});
+  $('#drin').querySelectorAll('[data-track]').forEach(b=>b.onclick=()=>replayView(+b.dataset.track));
+  $('#drin').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editForm(r.l.find(x=>x.id===+b.dataset.edit),r));
+  $('#drin').querySelectorAll('[data-hist]').forEach(b=>b.onclick=()=>histView(+b.dataset.hist,r));
+  $('#dr').classList.add('on');
+}
+function histHtml(list){return list.map(e=>`<div style="font-size:13px;color:#475569;border-top:1px solid #e2e8f0;padding:6px 0"><b>${esc(e.editor)}</b> · ${fdate(e.ts)} ${ftime(e.ts)}<br>${fdate(e.old_start)} ${ftime(e.old_start)} – ${ftime(e.old_end)} ← ${fdate(e.new_start)} ${ftime(e.new_start)} – ${ftime(e.new_end)}${e.note?`<br>${TR_('ملاحظة:','Note:')} ${esc(e.note)}`:''}</div>`).join('')}
+async function fetchEdits(id){try{return (await api('/api/shifts/edits?id='+id)).edits}catch(_){return[]}}
+function histView(id,r){
+  $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${TR_('سجل التعديلات','Edit history')}</h3><div id="hbody"><p style="color:#64748b">…</p></div><button class="btn ghost" id="hbk">${TR_('رجوع','Back')}</button>`;
+  $('#hbk').onclick=()=>drillIn(r);
+  fetchEdits(id).then(l=>{$('#hbody').innerHTML=l.length?histHtml(l):`<p style="color:#64748b">${TR_('لا يوجد سجل.','No history.')}</p>`});
+}
+function editForm(s,r){
+  $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${TR_('تعديل وقت الدوام','Edit shift time')} · ${esc(r.d.name)}</h3>
+  <div style="font-size:14px;color:#64748b;margin-bottom:8px">${esc(s.bus||'-')} · ${fdate(s.start)}${s.pend?` · <span style="color:#b45309">${TR_('قيد المراجعة (أُغلق تلقائيًا)','Pending review (auto-closed)')}</span>`:''}</div>
+  <label class="f">${TR_('وقت الاستلام (البداية)','Take-over (start)')}</label><input class="t" type="datetime-local" id="es" value="${dtl(s.start)}">
+  <label class="f">${TR_('وقت التسليم (النهاية)','Hand-over (end)')}</label><input class="t" type="datetime-local" id="ee" value="${dtl(s.end)}">
+  <label class="f">${TR_('ملاحظة (اختياري)','Note (optional)')}</label><input class="t" id="en" maxlength="200">
+  <div class="err" id="eer"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn gold" id="esv">${TR_('حفظ التعديل','Save edit')}</button><button class="btn ghost" id="erp2">🗺 ${TR_('عرض المسار','View route')}</button><button class="btn ghost" id="ecx">${TR_('رجوع','Back')}</button></div>
+  <div id="ehist"></div>`;
+  $('#erp2').onclick=()=>replayView(s.id);
+  $('#ecx').onclick=()=>drillIn(r);
+  $('#esv').onclick=async()=>{
+    const sv=$('#es').value,ev=$('#ee').value,ns=sv?new Date(sv).getTime():NaN,ne=ev?new Date(ev).getTime():NaN,er=$('#eer');
+    if(!sv||!ev||!Number.isFinite(ns)||!Number.isFinite(ne)){er.textContent=TR_('حدد وقت البداية والنهاية','Pick start and end times');return}
+    if(ne<=ns){er.textContent=TR_('وقت النهاية يجب أن يكون بعد وقت البداية','End time must be after start time');return}
+    er.textContent='';const btn=$('#esv');btn.disabled=true;
+    try{const q=await api('/api/shifts/edit',{method:'POST',body:{id:s.id,start:ns,end:ne,note:$('#en').value.trim()}});
+      toast(TR_('تم حفظ التعديل','Edit saved')+` · ${hm(q.totalMs)}${q.overtimeMs?` (+${hm(q.overtimeMs)})`:''}`);
+      $('#dr').classList.remove('on');await repTab();const t=document.querySelector(`tr.clk[data-u="${r.d.u}"]`);t&&t.click();
+    }catch(e){btn.disabled=false;er.textContent=errMsg(e)}
+  };
+  fetchEdits(s.id).then(l=>{const h=$('#ehist');if(h&&l.length)h.innerHTML=`<div style="margin-top:12px"><b style="font-size:14px">${TR_('سجل التعديلات','Edit history')}</b>${histHtml(l)}</div>`});
 }
 
 /* ---------- route replay ---------- */
 const TR_=(ar,en)=>LANGX==='en'?en:ar;
 async function shiftsDrawer(u,name){
   let r;try{r=await api('/api/shifts?u='+encodeURIComponent(u))}catch(e){toast(errMsg(e));return}
-  $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${TR_('مسارات','Routes')} · ${esc(name)}</h3>`+(r.shifts.length?`<table><thead><tr><th>${TR_('التاريخ','Date')}</th><th>${TR_('الباص','Bus')}</th><th>${TR_('من','From')}</th><th>${TR_('إلى','To')}</th><th></th></tr></thead><tbody>${r.shifts.map(s=>`<tr><td>${fdate(s.start_ts)}</td><td>${esc(s.bus||'-')}</td><td>${ftime(s.start_ts)}</td><td>${ftime(s.end_ts)}</td><td><button class="btn sm gold" data-track="${s.id}">${TR_('عرض المسار','View route')}</button></td></tr>`).join('')}</tbody></table>`:`<p>${TR_('لا توجد دوامات مسجلة بعد.','No shifts recorded yet.')}</p>`)+`<div style="margin-top:12px"><button class="btn ghost" onclick="document.getElementById('dr').classList.remove('on')">${TR_('إغلاق','Close')}</button></div>`;
+  $('#drin').innerHTML=`<h3 style="margin:0 0 10px">${TR_('مسارات','Routes')} · ${esc(name)}</h3>`+(r.shifts.length?`<table><thead><tr><th>${TR_('التاريخ','Date')}</th><th>${TR_('الباص','Bus')}</th><th>${TR_('من','From')}</th><th>${TR_('إلى','To')}</th><th></th></tr></thead><tbody>${r.shifts.map(s=>`<tr><td>${fdate(s.start_ts)}</td><td>${esc(s.bus||'-')}</td><td>${ftime(s.start_ts)}</td><td>${ftime(s.end_ts)}</td><td><button class="btn sm gold" data-track="${s.id}">${TR_('عرض المسار','View route')}</button></td></tr>`).join('')}</tbody></table>`:`<p>${TR_('لا توجد دوامات مسجلة بعد.','No shifts recorded yet.')}</p>`)+`<div style="margin-top:12px"><button class="btn ghost" onclick="document.getElementById(\'dr\').classList.remove(\'on\')">${TR_('إغلاق','Close')}</button></div>`;
   $('#drin').querySelectorAll('[data-track]').forEach(b=>b.onclick=()=>replayView(+b.dataset.track));
   $('#dr').classList.add('on');
 }

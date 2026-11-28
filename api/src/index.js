@@ -160,6 +160,9 @@ async function ensureShiftCols(env){
   if(shiftColsOk)return;
   try{await env.DB.prepare('ALTER TABLE shifts ADD COLUMN auto_closed INTEGER NOT NULL DEFAULT 0').run()}catch(_){}
   try{await env.DB.prepare('ALTER TABLE shifts ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0').run()}catch(_){}
+  try{await env.DB.prepare('ALTER TABLE shifts ADD COLUMN edited INTEGER NOT NULL DEFAULT 0').run()}catch(_){}
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS shift_edits(id INTEGER PRIMARY KEY AUTOINCREMENT,shift_id INTEGER NOT NULL,u TEXT NOT NULL,editor TEXT NOT NULL,old_start INTEGER NOT NULL,old_end INTEGER,new_start INTEGER NOT NULL,new_end INTEGER,note TEXT,ts INTEGER NOT NULL)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS shift_edits_shift ON shift_edits(shift_id,ts)').run();
   shiftColsOk=true;
 }
 async function closeStaleShifts(env,u){
@@ -203,12 +206,12 @@ async function report(env,month){
   const [y,m]=month.split('-').map(Number);
   const tz=3*3600e3; // Asia/Riyadh, UTC+3 all year
   const from=Date.UTC(y,m-1,1)-tz,to=Date.UTC(y,m,1)-tz;
-  const rows=await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts,km,trips,auto_closed,reviewed FROM shifts WHERE end_ts IS NOT NULL AND start_ts>=? AND start_ts<? ORDER BY start_ts').bind(from,to).all();
+  const rows=await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts,km,trips,auto_closed,reviewed,edited FROM shifts WHERE end_ts IS NOT NULL AND start_ts>=? AND start_ts<? ORDER BY start_ts').bind(from,to).all();
   const users=await env.DB.prepare("SELECT u,name FROM users WHERE role='driver'").all();
   // Auto-closed shifts (forgotten handover, end time is a guess) stay out of the final
   // totals until a manager confirms them; they are returned flagged as pending instead.
   return {month,drivers:users.results.map(d=>{
-    const all=rows.results.filter(s=>s.u===d.u).map(s=>({id:s.id,bus:s.bus,start:s.start_ts,end:s.end_ts,km:s.km,trips:s.trips,autoClosed:!!s.auto_closed,reviewed:!!s.reviewed,pending:!!(s.auto_closed&&!s.reviewed),overtimeMs:Math.max(0,s.end_ts-s.start_ts-H8)}));
+    const all=rows.results.filter(s=>s.u===d.u).map(s=>({id:s.id,bus:s.bus,start:s.start_ts,end:s.end_ts,km:s.km,trips:s.trips,autoClosed:!!s.auto_closed,reviewed:!!s.reviewed,pending:!!(s.auto_closed&&!s.reviewed),edited:!!s.edited,overtimeMs:Math.max(0,s.end_ts-s.start_ts-H8)}));
     const fin=all.filter(s=>!s.pending),pend=all.filter(s=>s.pending);
     return {u:d.u,name:d.name,days:fin.length,totalMs:fin.reduce((a,s)=>a+s.end-s.start,0),overtimeMs:fin.reduce((a,s)=>a+s.overtimeMs,0),overtimeDays:fin.filter(s=>s.overtimeMs>0).length,km:fin.reduce((a,s)=>a+s.km,0),pending:pend.length,pendingMs:pend.reduce((a,s)=>a+s.end-s.start,0),pendingOvertimeMs:pend.reduce((a,s)=>a+s.overtimeMs,0),shifts:all}})};
 }
@@ -323,7 +326,7 @@ export default {
       if(path==='/api/fleet'&&req.method==='GET')return J(await fleet(env),200,H);
       if(path==='/api/report'&&req.method==='GET'){const r=await report(env,url.searchParams.get('month')||'');return r?J(r,200,H):J({error:'bad_month'},400,H)}
       if(path==='/api/shifts'&&req.method==='GET'){const du=url.searchParams.get('u')||'';if(!/^[a-z0-9._-]+$/.test(du))return J({error:'bad_request'},400,H);await ensureShiftCols(env);
-        return J({shifts:(await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts,km,trips,auto_closed,reviewed FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 30').bind(du).all()).results},200,H)}
+        return J({shifts:(await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts,km,trips,auto_closed,reviewed,edited FROM shifts WHERE u=? AND end_ts IS NOT NULL ORDER BY start_ts DESC LIMIT 30').bind(du).all()).results},200,H)}
       if(path==='/api/track'&&req.method==='GET'){await ensureTables(env);const id=+url.searchParams.get('shift')||0;
         const sh=await env.DB.prepare('SELECT id,u,bus,start_ts,end_ts FROM shifts WHERE id=?').bind(id).first();if(!sh)return J({error:'not_found'},404,H);
         const usr=await env.DB.prepare('SELECT name FROM users WHERE u=?').bind(sh.u).first();
@@ -349,13 +352,33 @@ export default {
       if(m&&req.method==='DELETE'){
         const u=m[1];const row=await env.DB.prepare("SELECT u FROM users WHERE u=? AND role='driver'").bind(u).first();if(!row)return J({error:'not_found'},404,H);
         if(await env.DB.prepare('SELECT 1 FROM shifts WHERE u=? AND end_ts IS NULL').bind(u).first())return J({error:'shift_open'},409,H);
-        await env.DB.prepare('DELETE FROM shifts WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM track WHERE u=?').bind(u).run();
+        await ensureShiftCols(env);await env.DB.prepare('DELETE FROM shifts WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM positions WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM track WHERE u=?').bind(u).run();await env.DB.prepare('DELETE FROM shift_edits WHERE u=?').bind(u).run();
         await env.DB.prepare("DELETE FROM users WHERE u=? AND role='driver'").bind(u).run();return J({ok:true},200,H);
       }
       if(path==='/api/buses'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const id=str(b.id,40);if(!id)return J({error:'bad_request'},400,H);await env.DB.prepare('INSERT OR REPLACE INTO buses(id,label,active) VALUES(?,?,1)').bind(id,str(b.label,80)).run();return J({ok:true},201,H)}
       if(path==='/api/push/register'&&req.method==='POST'){const b=await req.json().catch(()=>({}));const token=str(b.token,400);if(!token)return J({error:'bad_request'},400,H);await ensureTables(env);await env.DB.prepare('INSERT INTO push_tokens(u,token,platform,ts) VALUES(?,?,?,?) ON CONFLICT(u) DO UPDATE SET token=excluded.token,platform=excluded.platform,ts=excluded.ts').bind(me.u,token,str(b.platform,20)||null,Date.now()).run();return J({ok:true},201,H)}
       if(path==='/api/push/register'&&req.method==='DELETE'){await ensureTables(env);await env.DB.prepare('DELETE FROM push_tokens WHERE u=?').bind(me.u).run();return J({ok:true},200,H)}
       if(path==='/api/push/send'&&req.method==='POST'){const e=adminOnly();if(e)return e;await ensureTables(env);const b=await req.json().catch(()=>({}));const title=str(b.title,120),body=str(b.body,400);if(!title||!body)return J({error:'bad_request'},400,H);try{return J(await sendPush(env,b.u?str(b.u,60):null,title,body),200,H)}catch(err){return J({error:String(err.message||'push_failed')},502,H)}}
+      if(path==='/api/shifts/edit'&&req.method==='POST'){
+        await ensureShiftCols(env);
+        const b=await req.json().catch(()=>({}));const id=Number(b.id);
+        if(!Number.isInteger(id))return J({error:'bad_request'},400,H);
+        const sh=await env.DB.prepare('SELECT id,u,start_ts,end_ts FROM shifts WHERE id=?').bind(id).first();
+        if(!sh)return J({error:'not_found'},404,H);
+        if(sh.end_ts==null)return J({error:'shift_open'},409,H);
+        const ns=b.start!=null?Number(b.start):sh.start_ts,ne=b.end!=null?Number(b.end):sh.end_ts;
+        const now=Date.now(),MIN=946684800e3,MAX=now+864e5;
+        if(!Number.isFinite(ns)||!Number.isFinite(ne)||ns<MIN||ne<MIN||ns>MAX||ne>MAX)return J({error:'bad_time'},400,H);
+        if(ne<=ns)return J({error:'end_before_start'},400,H);
+        if(ns===sh.start_ts&&ne===sh.end_ts)return J({error:'no_change'},400,H);
+        const note=str(b.note,200)||null;
+        await env.DB.prepare('UPDATE shifts SET start_ts=?,end_ts=?,edited=1 WHERE id=?').bind(ns,ne,id).run();
+        await env.DB.prepare('INSERT INTO shift_edits(shift_id,u,editor,old_start,old_end,new_start,new_end,note,ts) VALUES(?,?,?,?,?,?,?,?,?)').bind(id,sh.u,me.u,sh.start_ts,sh.end_ts,ns,ne,note,now).run();
+        return J({ok:true,id,start_ts:ns,end_ts:ne,totalMs:ne-ns,overtimeMs:Math.max(0,ne-ns-H8)},200,H);
+      }
+      if(path==='/api/shifts/edits'&&req.method==='GET'){await ensureShiftCols(env);const id=+url.searchParams.get('id')||0;
+        return J({edits:(await env.DB.prepare('SELECT editor,old_start,old_end,new_start,new_end,note,ts FROM shift_edits WHERE shift_id=? ORDER BY ts DESC LIMIT 20').bind(id).all()).results},200,H);
+      }
       if(path==='/api/shifts/review'&&req.method==='POST'){const e=adminOnly();if(e)return e;await ensureShiftCols(env);const b=await req.json().catch(()=>({}));const id=Number(b.id);if(!Number.isInteger(id))return J({error:'bad_request'},400,H);const sh=await env.DB.prepare('SELECT id FROM shifts WHERE id=? AND auto_closed=1').bind(id).first();if(!sh)return J({error:'not_found'},404,H);await env.DB.prepare('UPDATE shifts SET reviewed=1 WHERE id=?').bind(id).run();return J({ok:true},200,H)}
       return J({error:'not_found'},404,H);
     }catch(e){return J({error:'server_error'},500,H)}
